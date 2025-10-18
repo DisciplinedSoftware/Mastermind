@@ -23,34 +23,9 @@
 #include <iomanip>
 
 
-using Color = char; // Color represented as a single character
+using Color = unsigned char; // Color represented as a single character
 using Colors = std::vector<Color>;
 using Code = std::vector<Color>;
-
-// Generate all possible codes (no duplicate colors, supports any pegs/colors)
-std::vector<Code> generate_all_codes(unsigned int pegs, unsigned int colors) {
-    const auto color_chars = std::views::iota(0u, colors) | std::ranges::to<Colors>();
-    std::vector<Code> codes;
-    Code code;
-    std::function<void(size_t, std::vector<bool>&)> backtrack = [&](size_t pos, std::vector<bool>& used) {
-        if (pos == pegs) {
-            codes.push_back(code);
-            return;
-        }
-        for (size_t c = 0; c < colors; ++c) {
-            if (!used[c]) {
-                code.push_back(color_chars[c]);
-                used[c] = true;
-                backtrack(pos + 1, used);
-                used[c] = false;
-                code.pop_back();
-            }
-        }
-        };
-    std::vector<bool> used(colors, false);
-    backtrack(0, used);
-    return codes;
-}
 
 // Feedback: encapsulates black and white peg counts
 class Feedback {
@@ -127,27 +102,62 @@ public:
 
 // --- CodeBreakerSolver class ---
 class CodeBreakerSolver {
-    std::vector<Code> possibilities;
+    unsigned int pegs;
+    unsigned int colors;
+    std::vector<std::pair<Code, Feedback>> history;
     Code last_guess;
     FeedbackCalculator feedback_calculator;
+    std::generator<Code> code_gen;
+    decltype(code_gen.begin()) code_it;
 public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
-        : possibilities(generate_all_codes(pegs, colors))
+        : pegs(pegs)
+        , colors(colors)
         , feedback_calculator(pegs, colors)
-    {
+        , code_gen(backtrack())
+        , code_it(code_gen.begin()) {
+    }
+
+    std::generator<Code> backtrack() {
+        std::vector<Color> code(pegs);
+        std::vector<bool> used(colors, false);
+        // Helper coroutine for recursion
+        auto helper = [this, &code, &used](size_t pos, auto& helper_ref) -> std::generator<Code> {
+            if (pos == pegs) {
+                if (std::ranges::all_of(history, [&](const auto& h) {
+                    const auto& [guess, fb] = h;
+                    return feedback_calculator.is_same_feedback(guess, code, fb);
+                    })) {
+                    co_yield code;
+                }
+                co_return;
+            }
+            for (Color i = 0; i < colors; ++i) {
+                if (!used[i]) {
+                    code[pos] = i;
+                    used[i] = true;
+                    for (auto&& c : helper_ref(pos + 1, helper_ref))
+                        co_yield c;
+                    used[i] = false;
+                }
+            }
+            };
+        for (auto&& c : helper(0, helper))
+            co_yield c;
     }
 
     Code next_guess() {
-        last_guess = possibilities[0];
+        last_guess = *code_it;
         return last_guess;
     }
+
     void feedback(const Feedback& fb) {
-        possibilities = possibilities
-            | std::views::filter([&](const Code& code) { return feedback_calculator.is_same_feedback(last_guess, code, fb); })
-            | std::ranges::to<std::vector>();
+        history.emplace_back(last_guess, fb);
+        ++code_it;
     }
+
     bool can_continue() const {
-        return !possibilities.empty();
+        return code_it != code_gen.end();
     }
 };
 
