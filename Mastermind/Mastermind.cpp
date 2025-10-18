@@ -20,6 +20,7 @@
 #include <numeric>
 #include <mdspan>
 #include <set>
+#include <stack>
 #include <iomanip>
 
 
@@ -118,34 +119,6 @@ public:
         , code_it(code_gen.begin()) {
     }
 
-    std::generator<Code> backtrack() {
-        std::vector<Color> code(pegs);
-        std::vector<bool> used(colors, false);
-        // Helper coroutine for recursion
-        auto helper = [this, &code, &used](size_t pos, auto& helper_ref) -> std::generator<Code> {
-            if (pos == pegs) {
-                if (std::ranges::all_of(history, [&](const auto& h) {
-                    const auto& [guess, fb] = h;
-                    return feedback_calculator.is_same_feedback(guess, code, fb);
-                    })) {
-                    co_yield code;
-                }
-                co_return;
-            }
-            for (Color i = 0; i < colors; ++i) {
-                if (!used[i]) {
-                    code[pos] = i;
-                    used[i] = true;
-                    for (auto&& c : helper_ref(pos + 1, helper_ref))
-                        co_yield c;
-                    used[i] = false;
-                }
-            }
-            };
-        for (auto&& c : helper(0, helper))
-            co_yield c;
-    }
-
     Code next_guess() {
         last_guess = *code_it;
         return last_guess;
@@ -158,6 +131,45 @@ public:
 
     bool can_continue() const {
         return code_it != code_gen.end();
+    }
+
+private:
+    std::generator<Code> backtrack() {
+        Code code(pegs);
+        std::vector<bool> used(colors, false);
+        std::stack<Color, std::vector<Color>> stack({ 0 });
+        size_t position = 0;
+
+        while (!stack.empty()) {
+            Color& color = stack.top();
+            if (position == pegs) {
+                if (std::ranges::all_of(history, [&](const auto& h) {
+                    const auto& [old_guess, feedback] = h;
+                    return feedback_calculator.is_same_feedback(old_guess, code, feedback);
+                    })) {
+                    co_yield code;
+                }
+                stack.pop();
+                used[code[--position]] = false;
+            }
+            else if (static_cast<unsigned int>(color) >= colors) {
+                if (position == 0u) {
+                    break;
+                }
+
+                stack.pop();
+                used[code[--position]] = false;
+            }
+            else if (!used[color]) {
+                code[position] = color;
+                used[color++] = true;
+                ++position;
+                stack.push(0);
+            }
+            else {
+                ++color;
+            }
+        }
     }
 };
 
