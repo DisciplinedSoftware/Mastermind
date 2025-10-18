@@ -161,7 +161,7 @@ public:
     }
 };
 
-std::vector<Color> randomize_colors(unsigned int colors, unsigned int seed) {
+Colors randomize_colors(unsigned int colors, unsigned int seed) {
     std::mt19937 rng(seed);
     auto color_chars = std::views::iota(0u, colors) | std::ranges::to<std::vector<Color>>();
     std::ranges::shuffle(color_chars, rng);
@@ -201,7 +201,7 @@ int main() {
     std::array<std::array<std::chrono::microseconds, count>, nb_tries> times{};
     for (auto i : std::views::iota(0u, nb_tries)) {
         for (auto j : std::views::iota(0u, count)) {
-            const auto secret = generate_secret(pegs, colors, 42 + i);    // Pseudo-random secret
+            const auto secret = generate_secret(pegs, colors, 42 + j);    // Pseudo-random secret
 
             Code guess;
             Timer timer;
@@ -229,8 +229,8 @@ int main() {
     for (const auto& t : times) {
         const auto current_run_time = std::accumulate(t.begin(), t.end(), std::chrono::microseconds::zero());
         total += current_run_time;
-        min = std::min(min, *std::ranges::min_element(t));
-        max = std::max(max, *std::ranges::max_element(t));
+        min = std::min(min, current_run_time);
+        max = std::max(max, current_run_time);
         std::cout << std::setprecision(std::numeric_limits<double>::digits10) << current_run_time.count() << '\n';
     }
 
