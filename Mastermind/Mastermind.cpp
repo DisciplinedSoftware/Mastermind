@@ -96,6 +96,32 @@ public:
         }
         return { black, white - black };
     }
+
+    bool is_same_feedback(const Code& guess, const Code& secret, const Feedback& feedback) {
+        // Black pegs
+        unsigned int black = 0;
+        for (size_t i = 0; i < pegs; ++i) {
+            if (guess[i] == secret[i]) {
+                ++black;
+            }
+        }
+        if (black != feedback.black()) {
+            return false;
+        }
+
+        // White pegs
+        std::ranges::fill(guess_frequency_map, false);
+        std::ranges::fill(secret_frequency_map, false);
+        for (size_t i = 0; i < pegs; ++i) {
+            guess_frequency_map[guess[i]] = true;
+            secret_frequency_map[secret[i]] = true;
+        }
+        unsigned int white = 0;
+        for (auto color : guess) {
+            white += guess_frequency_map[color] && secret_frequency_map[color];
+        }
+        return (white - black) == feedback.white();
+    }
 };
 
 
@@ -117,7 +143,7 @@ public:
     }
     void feedback(const Feedback& fb) {
         possibilities = possibilities
-            | std::views::filter([&](const Code& code) { return feedback_calculator.get_feedback(last_guess, code) == fb; })
+            | std::views::filter([&](const Code& code) { return feedback_calculator.is_same_feedback(last_guess, code, fb); })
             | std::ranges::to<std::vector>();
     }
     bool can_continue() const {
