@@ -83,12 +83,10 @@ public:
         // Black pegs
         unsigned int black = 0;
         for (size_t i = 0; i < pegs; ++i) {
+            guess_frequency_map[guess[i]] = true;
+            secret_frequency_map[secret[i]] = true;
             if (guess[i] == secret[i]) {
                 ++black;
-            }
-            else {
-                guess_frequency_map[guess[i]] = true;
-                secret_frequency_map[secret[i]] = true;
             }
         }
         // White pegs
@@ -96,7 +94,7 @@ public:
         for (auto color : guess) {
             white += guess_frequency_map[color] && secret_frequency_map[color];
         }
-        return { black, white };
+        return { black, white - black };
     }
 };
 
