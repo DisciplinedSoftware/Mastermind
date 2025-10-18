@@ -67,35 +67,34 @@ public:
 class FeedbackCalculator {
     unsigned int pegs;
     unsigned int colors;
-    std::vector<bool> guess_used;
-    std::vector<bool> secret_used;
+    std::vector<bool> guess_frequency_map;
+    std::vector<bool> secret_frequency_map;
 public:
     FeedbackCalculator(unsigned int pegs, unsigned int colors)
-        : pegs(pegs), colors(colors), guess_used(pegs), secret_used(pegs) {
+        : pegs(pegs)
+        , colors(colors)
+        , guess_frequency_map(colors)
+        , secret_frequency_map(colors) {
     }
 
     Feedback get_feedback(const Code& guess, const Code& secret) {
-        std::ranges::fill(guess_used, false);
-        std::ranges::fill(secret_used, false);
+        std::ranges::fill(guess_frequency_map, false);
+        std::ranges::fill(secret_frequency_map, false);
         // Black pegs
         unsigned int black = 0;
         for (size_t i = 0; i < pegs; ++i) {
             if (guess[i] == secret[i]) {
-                black++;
-                guess_used[i] = secret_used[i] = true;
+                ++black;
+            }
+            else {
+                guess_frequency_map[guess[i]] = true;
+                secret_frequency_map[secret[i]] = true;
             }
         }
         // White pegs
         unsigned int white = 0;
-        for (size_t i = 0; i < pegs; ++i) {
-            if (guess_used[i]) continue;
-            for (size_t j = 0; j < pegs; ++j) {
-                if (!secret_used[j] && guess[i] == secret[j]) {
-                    white++;
-                    secret_used[j] = true;
-                    break;
-                }
-            }
+        for (unsigned int i = 0; i < colors; ++i) {
+            white += guess_frequency_map[i] && secret_frequency_map[i];
         }
         return { black, white };
     }
