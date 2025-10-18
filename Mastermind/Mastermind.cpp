@@ -63,40 +63,54 @@ public:
     bool operator==(const Feedback& other) const = default;
 };
 
-Feedback get_feedback(const Code& guess, const Code& secret) {
-    const auto pegs = guess.size();
-    unsigned int black = 0;
-    unsigned int white = 0;
-    std::vector<bool> guess_used(pegs, false), secret_used(pegs, false);
-    // Black pegs
-    for (int i = 0; i < pegs; ++i) {
-        if (guess[i] == secret[i]) {
-            black++;
-            guess_used[i] = secret_used[i] = true;
-        }
+// FeedbackCalculator: encapsulates feedback logic and reuses count vectors
+class FeedbackCalculator {
+    unsigned int pegs;
+    unsigned int colors;
+    std::vector<bool> guess_used;
+    std::vector<bool> secret_used;
+public:
+    FeedbackCalculator(unsigned int pegs, unsigned int colors)
+        : pegs(pegs), colors(colors), guess_used(pegs), secret_used(pegs) {
     }
-    // White pegs
-    for (int i = 0; i < pegs; ++i) {
-        if (guess_used[i]) continue;
-        for (int j = 0; j < pegs; ++j) {
-            if (!secret_used[j] && guess[i] == secret[j]) {
-                white++;
-                secret_used[j] = true;
-                break;
+
+    Feedback get_feedback(const Code& guess, const Code& secret) {
+        std::ranges::fill(guess_used, false);
+        std::ranges::fill(secret_used, false);
+        // Black pegs
+        unsigned int black = 0;
+        for (size_t i = 0; i < pegs; ++i) {
+            if (guess[i] == secret[i]) {
+                black++;
+                guess_used[i] = secret_used[i] = true;
             }
         }
+        // White pegs
+        unsigned int white = 0;
+        for (size_t i = 0; i < pegs; ++i) {
+            if (guess_used[i]) continue;
+            for (size_t j = 0; j < pegs; ++j) {
+                if (!secret_used[j] && guess[i] == secret[j]) {
+                    white++;
+                    secret_used[j] = true;
+                    break;
+                }
+            }
+        }
+        return { black, white };
     }
-    return { black, white };
-}
+};
 
 
 // --- CodeBreakerSolver class ---
 class CodeBreakerSolver {
     std::vector<Code> possibilities;
     Code last_guess;
+    FeedbackCalculator feedback_calculator;
 public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
         : possibilities(generate_all_codes(pegs, colors))
+        , feedback_calculator(pegs, colors)
     {
     }
 
@@ -106,7 +120,7 @@ public:
     }
     void feedback(const Feedback& fb) {
         possibilities = possibilities
-            | std::views::filter([&](const Code& code) { return get_feedback(last_guess, code) == fb; })
+            | std::views::filter([&](const Code& code) { return feedback_calculator.get_feedback(last_guess, code) == fb; })
             | std::ranges::to<std::vector>();
     }
     bool can_continue() const {
@@ -147,6 +161,7 @@ std::ostream& operator<<(std::ostream& stream, const Code& code) {
 int main() {
     const auto pegs = 5;
     const auto colors = 8;
+    FeedbackCalculator feedback_calculator(pegs, colors);
 
     constexpr unsigned int nb_tries = 100;
     constexpr unsigned int count = 200;
@@ -160,7 +175,7 @@ int main() {
             CodeBreakerSolver code_breaker(pegs, colors);
             while (code_breaker.can_continue()) {
                 guess = code_breaker.next_guess();
-                Feedback fb = get_feedback(guess, secret);
+                Feedback fb = feedback_calculator.get_feedback(guess, secret);
                 if (fb.black() == pegs) {
                     break;
                 }
