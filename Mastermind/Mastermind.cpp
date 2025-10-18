@@ -93,8 +93,8 @@ public:
         }
         // White pegs
         unsigned int white = 0;
-        for (unsigned int i = 0; i < colors; ++i) {
-            white += guess_frequency_map[i] && secret_frequency_map[i];
+        for (auto color : guess) {
+            white += guess_frequency_map[color] && secret_frequency_map[color];
         }
         return { black, white };
     }
