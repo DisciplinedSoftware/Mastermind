@@ -101,7 +101,6 @@ class CodeBreakerSolver {
     Code last_guess;
     FrequencyMap last_guess_frequency_map;
     FrequencyMap code_frequency_map;
-    bool compute_frequency_map;
     FeedbackCalculator feedback_calculator;
     std::generator<std::pair<Code, FrequencyMap>> code_gen;
     decltype(code_gen.begin()) code_it;
@@ -111,7 +110,6 @@ public:
         , colors(colors)
         , last_guess_frequency_map(colors, false)
         , code_frequency_map(colors, false)
-        , compute_frequency_map(true)
         , feedback_calculator(pegs, colors)
         , code_gen(backtrack())
         , code_it(code_gen.begin()) {
@@ -140,8 +138,6 @@ private:
         while (!stack.empty()) {
             Color& color = stack.top();
             if (position == pegs) {
-                compute_frequency_map = true;
-
                 if (std::ranges::all_of(history, [&](const auto& h) {
                     const auto& [old_guess, feedback, old_guess_frequency_map] = h;
 
