@@ -101,11 +101,27 @@ public:
 };
 
 
+using History = std::tuple<Code, Feedback>;
+
+// Add above CodeBreakerSolver
+struct HistoryFeedbackOrder {
+    bool operator()(const History& a, const History& b) const {
+        const auto& fb_a = std::get<1>(a);
+        const auto& fb_b = std::get<1>(b);
+        if (fb_a.black() != fb_b.black())
+            return fb_a.black() > fb_b.black();
+        if (fb_a.white() != fb_b.white())
+            return fb_a.white() > fb_b.white();
+        return false;
+    }
+};
+
+
 // --- CodeBreakerSolver class ---
 class CodeBreakerSolver {
     unsigned int pegs;
     unsigned int colors;
-    std::vector<std::pair<Code, Feedback>> history;
+    std::set<History, HistoryFeedbackOrder> history;
     Code last_guess;
     FeedbackCalculator feedback_calculator;
     std::generator<Code> code_gen;
@@ -125,7 +141,7 @@ public:
     }
 
     void feedback(const Feedback& fb) {
-        history.emplace_back(last_guess, fb);
+        history.emplace(last_guess, fb);
         ++code_it;
     }
 
