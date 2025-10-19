@@ -28,6 +28,8 @@ using Color = unsigned char; // Color represented as a single character
 using Colors = std::vector<Color>;
 using Code = std::vector<Color>;
 
+using FrequencyMap = std::vector<bool>;
+
 // Feedback: encapsulates black and white peg counts
 class Feedback {
     unsigned int black_;
@@ -43,8 +45,8 @@ public:
 class FeedbackCalculator {
     unsigned int pegs;
     unsigned int colors;
-    std::vector<bool> guess_frequency_map;
-    std::vector<bool> secret_frequency_map;
+    FrequencyMap guess_frequency_map;
+    FrequencyMap secret_frequency_map;
 public:
     FeedbackCalculator(unsigned int pegs, unsigned int colors)
         : pegs(pegs)
@@ -72,36 +74,10 @@ public:
         }
         return { black, white - black };
     }
-
-    bool is_same_feedback(const Code& guess, const Code& secret, const Feedback& feedback) {
-        // Black pegs
-        unsigned int black = 0;
-        for (size_t i = 0; i < pegs; ++i) {
-            if (guess[i] == secret[i]) {
-                ++black;
-            }
-        }
-        if (black != feedback.black()) {
-            return false;
-        }
-
-        // White pegs
-        std::ranges::fill(guess_frequency_map, false);
-        std::ranges::fill(secret_frequency_map, false);
-        for (size_t i = 0; i < pegs; ++i) {
-            guess_frequency_map[guess[i]] = true;
-            secret_frequency_map[secret[i]] = true;
-        }
-        unsigned int white = 0;
-        for (auto color : guess) {
-            white += guess_frequency_map[color] && secret_frequency_map[color];
-        }
-        return (white - black) == feedback.white();
-    }
 };
 
 
-using History = std::tuple<Code, Feedback>;
+using History = std::tuple<Code, Feedback, FrequencyMap>;
 
 // Add above CodeBreakerSolver
 struct HistoryFeedbackOrder {
@@ -123,25 +99,31 @@ class CodeBreakerSolver {
     unsigned int colors;
     std::set<History, HistoryFeedbackOrder> history;
     Code last_guess;
+    FrequencyMap last_guess_frequency_map;
+    FrequencyMap code_frequency_map;
+    bool compute_frequency_map;
     FeedbackCalculator feedback_calculator;
-    std::generator<Code> code_gen;
+    std::generator<std::pair<Code, FrequencyMap>> code_gen;
     decltype(code_gen.begin()) code_it;
 public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
         : pegs(pegs)
         , colors(colors)
+        , last_guess_frequency_map(colors, false)
+        , code_frequency_map(colors, false)
+        , compute_frequency_map(true)
         , feedback_calculator(pegs, colors)
         , code_gen(backtrack())
         , code_it(code_gen.begin()) {
     }
 
     Code next_guess() {
-        last_guess = *code_it;
+        std::tie(last_guess, last_guess_frequency_map) = *code_it;
         return last_guess;
     }
 
-    void feedback(const Feedback& fb) {
-        history.emplace(last_guess, fb);
+    void apply_feedback(const Feedback& feedback) {
+        history.emplace(last_guess, feedback, last_guess_frequency_map);
         ++code_it;
     }
 
@@ -150,7 +132,7 @@ public:
     }
 
 private:
-    std::generator<Code> backtrack() {
+    std::generator<std::pair<Code, FrequencyMap>> backtrack() {
         Code code(pegs);
         std::vector<bool> used(colors, false);
         std::stack<Color, std::vector<Color>> stack({ 0 });
@@ -159,11 +141,41 @@ private:
         while (!stack.empty()) {
             Color& color = stack.top();
             if (position == pegs) {
+                compute_frequency_map = true;
+
                 if (std::ranges::all_of(history, [&](const auto& h) {
-                    const auto& [old_guess, feedback] = h;
-                    return feedback_calculator.is_same_feedback(old_guess, code, feedback);
+                    const auto& [old_guess, feedback, old_guess_frequency_map] = h;
+
+                    // Black pegs
+                    unsigned int black = 0;
+                    for (size_t i = 0; i < pegs; ++i) {
+                        if (code[i] == old_guess[i]) {
+                            ++black;
+                        }
+                    }
+                    if (black != feedback.black()) {
+                        return false;
+                    }
+
+                    if (compute_frequency_map) {
+                        compute_frequency_map = false;
+                        compute_code_frequency_map(code);
+                    }
+
+                    // White pegs
+                    unsigned int white = 0;
+                    for (auto color : code) {
+                        white += code_frequency_map[color] && old_guess_frequency_map[color];
+                    }
+                    return (white - black) == feedback.white();
                     })) {
-                    co_yield code;
+
+                    if (compute_frequency_map) {
+                        compute_frequency_map = false;
+                        compute_code_frequency_map(code);
+                    }
+
+                    co_yield{ code, code_frequency_map };
                 }
                 stack.pop();
                 used[code[--position]] = false;
@@ -185,6 +197,14 @@ private:
             else {
                 ++color;
             }
+        }
+    }
+
+    void compute_code_frequency_map(Code code)
+    {
+        std::ranges::fill(code_frequency_map, false);
+        for (auto c : code) {
+            code_frequency_map[c] = true;
         }
     }
 };
@@ -240,7 +260,7 @@ int main() {
                 if (fb.black() == pegs) {
                     break;
                 }
-                code_breaker.feedback(fb);
+                code_breaker.apply_feedback(fb);
             }
             const auto elapsed_time = timer.elapsed_seconds();
             times[i][j] = elapsed_time;
