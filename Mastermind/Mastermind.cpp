@@ -102,6 +102,10 @@ class CodeBreakerSolver {
     FrequencyMap last_guess_frequency_map;
     FrequencyMap code_frequency_map;
     FeedbackCalculator feedback_calculator;
+    Code code;
+    std::vector<Color> stack;
+    size_t position;
+    bool all_colors_known_mode;
     std::generator<std::pair<Code, FrequencyMap>> code_gen;
     decltype(code_gen.begin()) code_it;
 public:
@@ -111,6 +115,10 @@ public:
         , last_guess_frequency_map(colors, false)
         , code_frequency_map(colors, false)
         , feedback_calculator(pegs, colors)
+        , code(pegs)
+        , stack({ 0 })
+        , position(0)
+        , all_colors_known_mode(false)
         , code_gen(backtrack())
         , code_it(code_gen.begin()) {
     }
@@ -122,6 +130,15 @@ public:
 
     void apply_feedback(const Feedback& feedback) {
         history.emplace(last_guess, feedback, last_guess_frequency_map);
+
+        // Check if we should switch to permutation mode
+        if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
+            all_colors_known_mode = true;
+            code_gen = backtrack_using_only_code_colors();
+            code_it = code_gen.begin();
+            return;
+        }
+
         ++code_it;
     }
 
@@ -131,12 +148,8 @@ public:
 
 private:
     std::generator<std::pair<Code, FrequencyMap>> backtrack() {
-        Code code(pegs);
-        std::stack<Color, std::vector<Color>> stack({ 0 });
-        size_t position = 0;
-
         while (!stack.empty()) {
-            Color& color = stack.top();
+            Color& color = stack.back();
             if (position == pegs) {
                 if (std::ranges::all_of(history, [&](const auto& h) {
                     const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
@@ -160,9 +173,9 @@ private:
                     return (white - black) == old_guess_feedback.white();
                     })) {
 
-                    co_yield{ code, code_frequency_map };
+                    co_yield { code, code_frequency_map };
                 }
-                stack.pop();
+                stack.pop_back();
                 code_frequency_map[code[--position]] = false;
             }
             else if (static_cast<unsigned int>(color) >= colors) {
@@ -170,7 +183,7 @@ private:
                     break;
                 }
 
-                stack.pop();
+                stack.pop_back();
                 code_frequency_map[code[--position]] = false;
             }
             else {
@@ -208,7 +221,7 @@ private:
                         return (white - black) <= old_guess_feedback.white();
                         })) {
                         ++position;
-                        stack.push(0);
+                        stack.push_back(0);
                     }
                     else {
                         code_frequency_map[color] = false;
@@ -216,6 +229,113 @@ private:
                 }
 
                 ++color;
+            }
+        }
+    }
+
+    std::generator<std::pair<Code, FrequencyMap>> backtrack_using_only_code_colors() {
+        stack.pop_back();
+        code_frequency_map[code[--position]] = false;
+
+        auto sorted_code = code;
+        std::ranges::sort(sorted_code);
+        sorted_code.emplace_back(colors);
+
+        std::vector<Color> valid_color_converter;
+        valid_color_converter.reserve(colors+1);
+        size_t c = 0;
+        for (size_t i = 0; i <= colors; ++i) {
+            if (i > sorted_code[c]) {
+                ++c;
+            }
+            valid_color_converter[i] = sorted_code[c];
+        }
+
+        for (auto& color : stack) {
+            color = valid_color_converter[color];
+        }
+
+        while (!stack.empty()) {
+            Color& color = stack.back();
+            if (position == pegs) {
+                if (std::ranges::all_of(history, [&](const auto& h) {
+                    const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
+
+                    // Black pegs
+                    unsigned int black = 0;
+                    for (size_t i = 0; i < pegs; ++i) {
+                        if (code[i] == old_guess[i]) {
+                            ++black;
+                        }
+                    }
+                    if (black != old_guess_feedback.black()) {
+                        return false;
+                    }
+
+                    // White pegs
+                    unsigned int white = 0;
+                    for (auto color : code) {
+                        white += code_frequency_map[color] && old_guess_frequency_map[color];
+                    }
+                    return (white - black) == old_guess_feedback.white();
+                    })) {
+
+                    co_yield{ code, code_frequency_map };
+                }
+                stack.pop_back();
+                code_frequency_map[code[--position]] = false;
+            }
+            else if (static_cast<unsigned int>(color) >= colors) {
+                if (position == 0u) {
+                    break;
+                }
+
+                stack.pop_back();
+                code_frequency_map[code[--position]] = false;
+            }
+            else {
+                code[position] = color;
+
+                if (!code_frequency_map[color]) {
+                    code_frequency_map[color] = true;
+
+                    // Partial code pruning
+                    if (std::ranges::all_of(history, [&](const auto& h) {
+                        const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
+
+                        // Black pegs
+                        unsigned int black = 0;
+                        for (size_t i = 0; i <= position; ++i) {
+                            if (code[i] == old_guess[i]) {
+                                ++black;
+                            }
+                        }
+                        if (black > old_guess_feedback.black()) {
+                            return false;
+                        }
+                        else {
+                            return true;
+                        }
+
+                        // White pegs
+                        unsigned int white = 0;
+                        for (size_t i = 0; i <= position; ++i) {
+                            const auto code_color = code[i];
+                            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
+                        }
+                        // For the last position's color, code_frequency_map is not set yet.
+                        white += old_guess_frequency_map[color];
+                        return (white - black) <= old_guess_feedback.white();
+                        })) {
+                        ++position;
+                        stack.push_back(valid_color_converter[0]);
+                    }
+                    else {
+                        code_frequency_map[color] = false;
+                    }
+                }
+
+                color = valid_color_converter[color+1];
             }
         }
     }
