@@ -134,7 +134,6 @@ public:
 private:
     std::generator<std::pair<Code, FrequencyMap>> backtrack() {
         Code code(pegs);
-        std::vector<bool> used(colors, false);
         std::stack<Color, std::vector<Color>> stack({ 0 });
         size_t position = 0;
 
@@ -157,11 +156,6 @@ private:
                         return false;
                     }
 
-                    if (compute_frequency_map) {
-                        compute_frequency_map = false;
-                        compute_code_frequency_map(code);
-                    }
-
                     // White pegs
                     unsigned int white = 0;
                     for (auto color : code) {
@@ -170,15 +164,10 @@ private:
                     return (white - black) == feedback.white();
                     })) {
 
-                    if (compute_frequency_map) {
-                        compute_frequency_map = false;
-                        compute_code_frequency_map(code);
-                    }
-
                     co_yield{ code, code_frequency_map };
                 }
                 stack.pop();
-                used[code[--position]] = false;
+                code_frequency_map[code[--position]] = false;
             }
             else if (static_cast<unsigned int>(color) >= colors) {
                 if (position == 0u) {
@@ -186,25 +175,17 @@ private:
                 }
 
                 stack.pop();
-                used[code[--position]] = false;
+                code_frequency_map[code[--position]] = false;
             }
-            else if (!used[color]) {
+            else if (!code_frequency_map[color]) {
                 code[position] = color;
-                used[color++] = true;
+                code_frequency_map[color++] = true;
                 ++position;
                 stack.push(0);
             }
             else {
                 ++color;
             }
-        }
-    }
-
-    void compute_code_frequency_map(Code code)
-    {
-        std::ranges::fill(code_frequency_map, false);
-        for (auto c : code) {
-            code_frequency_map[c] = true;
         }
     }
 };
