@@ -148,30 +148,59 @@ public:
     }
 
 private:
+    inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
+    {
+        // Black pegs
+        unsigned int black = 0;
+        for (size_t i = 0; i < pegs; ++i) {
+            if (code[i] == old_guess[i]) {
+                ++black;
+            }
+        }
+        if (black != old_guess_feedback.black()) {
+            return false;
+        }
+
+        // White pegs
+        unsigned int white = 0;
+        for (auto color : code) {
+            white += code_frequency_map[color] && old_guess_frequency_map[color];
+        }
+        return (white - black) == old_guess_feedback.white();
+    }
+
+    inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
+    {
+        // Black pegs
+        unsigned int black = 0;
+        for (size_t i = 0; i <= position; ++i) {
+            if (code[i] == old_guess[i]) {
+                ++black;
+            }
+        }
+        if (black > old_guess_feedback.black()) {
+            return false;
+        }
+        else {
+            return true;
+        }
+
+        // White pegs
+        unsigned int white = 0;
+        for (size_t i = 0; i <= position; ++i) {
+            const auto code_color = code[i];
+            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
+        }
+        return (white - black) <= old_guess_feedback.white();
+    }
+
     std::generator<std::pair<Code, FrequencyMap>> backtrack() {
         while (!stack.empty()) {
             Color& color = stack.back();
             if (position == pegs) {
                 if (std::ranges::all_of(history, [&](const auto& h) {
                     const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-
-                    // Black pegs
-                    unsigned int black = 0;
-                    for (size_t i = 0; i < pegs; ++i) {
-                        if (code[i] == old_guess[i]) {
-                            ++black;
-                        }
-                    }
-                    if (black != old_guess_feedback.black()) {
-                        return false;
-                    }
-
-                    // White pegs
-                    unsigned int white = 0;
-                    for (auto color : code) {
-                        white += code_frequency_map[color] && old_guess_frequency_map[color];
-                    }
-                    return (white - black) == old_guess_feedback.white();
+                    return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                     })) {
 
                     co_yield { code, code_frequency_map };
@@ -197,29 +226,8 @@ private:
                     if (std::ranges::all_of(history, [&](const auto& h) {
                         const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
 
-                        // Black pegs
-                        unsigned int black = 0;
-                        for (size_t i = 0; i <= position; ++i) {
-                            if (code[i] == old_guess[i]) {
-                                ++black;
-                            }
-                        }
-                        if (black > old_guess_feedback.black()) {
-                            return false;
-                        }
-                        else {
-                            return true;
-                        }
+                        return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
 
-                        // White pegs
-                        unsigned int white = 0;
-                        for (size_t i = 0; i <= position; ++i) {
-                            const auto code_color = code[i];
-                            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
-                        }
-                        // For the last position's color, code_frequency_map is not set yet.
-                        white += old_guess_frequency_map[color];
-                        return (white - black) <= old_guess_feedback.white();
                         })) {
                         ++position;
                         stack.push_back(0);
@@ -261,24 +269,7 @@ private:
             if (position == pegs) {
                 if (std::ranges::all_of(history, [&](const auto& h) {
                     const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-
-                    // Black pegs
-                    unsigned int black = 0;
-                    for (size_t i = 0; i < pegs; ++i) {
-                        if (code[i] == old_guess[i]) {
-                            ++black;
-                        }
-                    }
-                    if (black != old_guess_feedback.black()) {
-                        return false;
-                    }
-
-                    // White pegs
-                    unsigned int white = 0;
-                    for (auto color : code) {
-                        white += code_frequency_map[color] && old_guess_frequency_map[color];
-                    }
-                    return (white - black) == old_guess_feedback.white();
+                    return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                     })) {
 
                     co_yield{ code, code_frequency_map };
@@ -303,30 +294,7 @@ private:
                     // Partial code pruning
                     if (std::ranges::all_of(history, [&](const auto& h) {
                         const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-
-                        // Black pegs
-                        unsigned int black = 0;
-                        for (size_t i = 0; i <= position; ++i) {
-                            if (code[i] == old_guess[i]) {
-                                ++black;
-                            }
-                        }
-                        if (black > old_guess_feedback.black()) {
-                            return false;
-                        }
-                        else {
-                            return true;
-                        }
-
-                        // White pegs
-                        unsigned int white = 0;
-                        for (size_t i = 0; i <= position; ++i) {
-                            const auto code_color = code[i];
-                            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
-                        }
-                        // For the last position's color, code_frequency_map is not set yet.
-                        white += old_guess_frequency_map[color];
-                        return (white - black) <= old_guess_feedback.white();
+                        return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                         })) {
                         ++position;
                         stack.push_back(valid_color_converter[0]);
@@ -341,6 +309,7 @@ private:
         }
     }
 };
+
 
 Colors randomize_colors(unsigned int colors, unsigned int seed) {
     std::mt19937 rng(seed);
