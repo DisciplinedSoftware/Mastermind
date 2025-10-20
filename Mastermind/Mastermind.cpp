@@ -106,8 +106,8 @@ class CodeBreakerSolver {
     std::vector<Color> stack;
     size_t position;
     bool all_colors_known_mode;
-    std::generator<std::pair<Code, FrequencyMap>> code_gen;
-    decltype(code_gen.begin()) code_it;
+    std::vector<Color> valid_color_converter;
+    bool has_next;
 
 public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
@@ -120,31 +120,54 @@ public:
         , stack({ 0 })
         , position(0)
         , all_colors_known_mode(false)
-        , code_gen(backtrack())
-        , code_it(code_gen.begin()) {
+        , valid_color_converter(colors + 1)
+        , has_next(backtrack()) {
     }
 
     Code next_guess() {
-        std::tie(last_guess, last_guess_frequency_map) = *code_it;
-        return last_guess;
+        return code;
     }
 
     void apply_feedback(const Feedback& feedback) {
-        history.emplace(last_guess, feedback, last_guess_frequency_map);
+        history.emplace(code, feedback, code_frequency_map);
+
+        stack.pop_back();
+        code_frequency_map[code[--position]] = false;
 
         // Check if we should switch to permutation mode
-        if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
+        if (!all_colors_known_mode && (feedback.black() + feedback.white() == pegs)) {
             all_colors_known_mode = true;
-            code_gen = backtrack_using_only_code_colors();
-            code_it = code_gen.begin();
-            return;
+
+            stack.pop_back();
+            code_frequency_map[code[--position]] = false;
+
+            auto sorted_code = code;
+            std::ranges::sort(sorted_code);
+            sorted_code.emplace_back(colors);
+
+            size_t c = 0;
+            for (size_t i = 0; i <= colors; ++i) {
+                if (i > sorted_code[c]) {
+                    ++c;
+                }
+                valid_color_converter[i] = sorted_code[c];
+            }
+
+            for (auto& color : stack) {
+                color = valid_color_converter[color];
+            }
         }
 
-        ++code_it;
+        if (all_colors_known_mode) {
+            has_next = backtrack_using_only_code_colors();
+        }
+        else {
+            has_next = backtrack();
+        }
     }
 
     bool can_continue() const {
-        return code_it != code_gen.end();
+        return has_next;
     }
 
 private:
@@ -194,8 +217,8 @@ private:
         return (white - black) <= old_guess_feedback.white();
     }
 
-    std::generator<std::pair<Code, FrequencyMap>> backtrack() {
-        while (!stack.empty()) {
+    bool backtrack() {
+        while (true) {
             Color& color = stack.back();
             if (position == pegs) {
                 if (std::ranges::all_of(history, [&](const auto& h) {
@@ -203,14 +226,14 @@ private:
                     return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                     })) {
 
-                    co_yield { code, code_frequency_map };
+                    return true;
                 }
                 stack.pop_back();
                 code_frequency_map[code[--position]] = false;
             }
             else if (static_cast<unsigned int>(color) >= colors) {
                 if (position == 0u) {
-                    break;
+                    return false;
                 }
 
                 stack.pop_back();
@@ -242,29 +265,8 @@ private:
         }
     }
 
-    std::generator<std::pair<Code, FrequencyMap>> backtrack_using_only_code_colors() {
-        stack.pop_back();
-        code_frequency_map[code[--position]] = false;
-
-        auto sorted_code = code;
-        std::ranges::sort(sorted_code);
-        sorted_code.emplace_back(colors);
-
-        std::vector<Color> valid_color_converter;
-        valid_color_converter.reserve(colors+1);
-        size_t c = 0;
-        for (size_t i = 0; i <= colors; ++i) {
-            if (i > sorted_code[c]) {
-                ++c;
-            }
-            valid_color_converter[i] = sorted_code[c];
-        }
-
-        for (auto& color : stack) {
-            color = valid_color_converter[color];
-        }
-
-        while (!stack.empty()) {
+    bool backtrack_using_only_code_colors() {
+        while (true) {
             Color& color = stack.back();
             if (position == pegs) {
                 if (std::ranges::all_of(history, [&](const auto& h) {
@@ -272,14 +274,14 @@ private:
                     return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                     })) {
 
-                    co_yield{ code, code_frequency_map };
+                    return true;
                 }
                 stack.pop_back();
                 code_frequency_map[code[--position]] = false;
             }
             else if (static_cast<unsigned int>(color) >= colors) {
                 if (position == 0u) {
-                    break;
+                    return false;
                 }
 
                 stack.pop_back();
@@ -358,11 +360,11 @@ int main() {
             CodeBreakerSolver code_breaker(pegs, colors);
             while (code_breaker.can_continue()) {
                 guess = code_breaker.next_guess();
-                Feedback fb = feedback_calculator.get_feedback(guess, secret);
-                if (fb.black() == pegs) {
+                Feedback feedback = feedback_calculator.get_feedback(guess, secret);
+                if (feedback.black() == pegs) {
                     break;
                 }
-                code_breaker.apply_feedback(fb);
+                code_breaker.apply_feedback(feedback);
             }
             const auto elapsed_time = timer.elapsed_seconds();
             times[i][j] = elapsed_time;
