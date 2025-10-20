@@ -95,42 +95,42 @@ struct HistoryFeedbackOrder {
 
 // --- CodeBreakerSolver class ---
 class CodeBreakerSolver {
+    struct NewValue {};
+
     unsigned int pegs;
     unsigned int colors;
     std::set<History, HistoryFeedbackOrder> history;
-    Code last_guess;
-    FrequencyMap last_guess_frequency_map;
     FrequencyMap code_frequency_map;
     FeedbackCalculator feedback_calculator;
     Code code;
     std::vector<Color> stack;
     size_t position;
     bool all_colors_known_mode;
-    std::generator<std::pair<Code, FrequencyMap>> code_gen;
+    std::vector<Color> valid_color_converter;
+    std::generator<NewValue> code_gen;
     decltype(code_gen.begin()) code_it;
 
 public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
         : pegs(pegs)
         , colors(colors)
-        , last_guess_frequency_map(colors, false)
         , code_frequency_map(colors, false)
         , feedback_calculator(pegs, colors)
         , code(pegs)
         , stack({ 0 })
         , position(0)
         , all_colors_known_mode(false)
+        , valid_color_converter(colors + 1)
         , code_gen(backtrack())
         , code_it(code_gen.begin()) {
     }
 
     Code next_guess() {
-        std::tie(last_guess, last_guess_frequency_map) = *code_it;
-        return last_guess;
+        return code;
     }
 
     void apply_feedback(const Feedback& feedback) {
-        history.emplace(last_guess, feedback, last_guess_frequency_map);
+        history.emplace(code, feedback, code_frequency_map);
 
         // Check if we should switch to permutation mode
         if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
@@ -194,7 +194,7 @@ private:
         return (white - black) <= old_guess_feedback.white();
     }
 
-    std::generator<std::pair<Code, FrequencyMap>> backtrack() {
+    std::generator<NewValue> backtrack() {
         while (!stack.empty()) {
             Color& color = stack.back();
             if (position == pegs) {
@@ -203,7 +203,7 @@ private:
                     return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                     })) {
 
-                    co_yield { code, code_frequency_map };
+                    co_yield {};
                 }
                 stack.pop_back();
                 code_frequency_map[code[--position]] = false;
@@ -242,7 +242,7 @@ private:
         }
     }
 
-    std::generator<std::pair<Code, FrequencyMap>> backtrack_using_only_code_colors() {
+    std::generator<NewValue> backtrack_using_only_code_colors() {
         stack.pop_back();
         code_frequency_map[code[--position]] = false;
 
@@ -250,8 +250,6 @@ private:
         std::ranges::sort(sorted_code);
         sorted_code.emplace_back(colors);
 
-        std::vector<Color> valid_color_converter;
-        valid_color_converter.reserve(colors+1);
         size_t c = 0;
         for (size_t i = 0; i <= colors; ++i) {
             if (i > sorted_code[c]) {
@@ -272,7 +270,7 @@ private:
                     return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                     })) {
 
-                    co_yield{ code, code_frequency_map };
+                    co_yield {};
                 }
                 stack.pop_back();
                 code_frequency_map[code[--position]] = false;
