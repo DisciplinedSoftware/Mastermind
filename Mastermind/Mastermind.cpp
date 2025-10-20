@@ -108,6 +108,7 @@ class CodeBreakerSolver {
     bool all_colors_known_mode;
     std::generator<std::pair<Code, FrequencyMap>> code_gen;
     decltype(code_gen.begin()) code_it;
+
 public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
         : pegs(pegs)
