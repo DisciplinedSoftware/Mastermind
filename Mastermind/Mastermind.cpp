@@ -25,9 +25,10 @@
 #include <bit>
 #include <immintrin.h>
 #include <cassert>
+#include <concepts>
 
 
-using Color = unsigned char; // Color represented as a single character
+using Color = std::uint8_t; // Color represented as a single byte
 using Colors = std::vector<Color>;
 using Code = std::vector<Color>;
 
@@ -102,7 +103,7 @@ struct HistoryFeedbackOrder {
 };
 
 template<std::integral Ta, std::integral Tb>
-Ta ceil(Ta a, Tb b) {
+Ta ceil_to_multiple_of(Ta a, Tb b) {
     return static_cast<Ta>(std::ceil(static_cast<long double>(a)/ static_cast<long double>(a)) * b);
 }
 
@@ -128,7 +129,7 @@ public:
         : pegs(pegs)
         , colors(colors)
         , code_frequency_map(colors, false)
-        , code(ceil(pegs, 32u), 0)
+        , code(/*ceil_to_multiple_of(pegs, 32u/sizeof(Color))*/pegs, 0)
         , position(0)
         , last_position(pegs - 1)
         , all_colors_known_mode(false)
@@ -160,70 +161,73 @@ public:
     }
 
 private:
-    inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data)
-    {
-        // Load 32 bytes from each array
-        __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
-        __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
-        // Compare for equality
-        __m256i cmp = _mm256_cmpeq_epi8(va, vb);
-        // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
-        return _mm256_movemask_epi8(cmp);
-    }
+    //inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data)
+    //{
+    //    // Load 32 bytes from each array
+    //    __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
+    //    __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
+    //    // Compare for equality
+    //    __m256i cmp = _mm256_cmpeq_epi8(va, vb);
+    //    // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
+    //    return _mm256_movemask_epi8(cmp);
+    //}
 
-    inline unsigned int count_equal_avx2(const Code& old_guess) {
-        constexpr size_t increment = 32 / sizeof(Code::value_type);
-        assert(code.size() == old_guess.size());
-        unsigned int sum = 0;
-        size_t i = 0;
-        for (; i + increment < position; i += increment) {
-            const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-            // Count the number of equal elements
-            sum += std::popcount(mask);
+    //inline unsigned int count_equal_avx2(const Code& old_guess) {
+    //    constexpr size_t increment = 32 / sizeof(Code::value_type);
+    //    assert(code.size() == old_guess.size());
+    //    unsigned int sum = 0;
+    //    size_t i = 0;
+    //    for (; i + increment < position; i += increment) {
+    //        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+    //        // Count the number of equal elements
+    //        sum += std::popcount(mask);
+    //    }
+
+    //    const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+    //    // Create a mask for the first n bytes
+    //    const std::uint32_t user_mask = (1u << (position-i+1)) - 1;
+    //    // Only count matches in masked positions
+    //    return sum + std::popcount(mask & user_mask);
+    //}
+
+    template<typename Oper>
+        requires std::predicate<Oper, unsigned int, unsigned int>
+    inline bool compare_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map, Oper oper)
+    {
+        // Black pegs
+        //const unsigned int black = count_equal_avx2(old_guess);
+        unsigned int black = 0;
+        for (size_t i = 0; i <= position; ++i) {
+            if (code[i] == old_guess[i]) {
+                ++black;
+            }
+        }
+        if (!oper(black, old_guess_feedback.black())) {
+            return false;
         }
 
-        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-        // Create a mask for the first n bytes
-        const std::uint32_t user_mask = (1u << (position-i+1)) - 1;
-        // Only count matches in masked positions
-        return sum + std::popcount(mask & user_mask);
+        // White pegs
+        unsigned int white = 0;
+        for (size_t i = 0; i <= position; ++i) {
+            const auto code_color = code[i];
+            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
+        }
+        return oper((white - black), old_guess_feedback.white());
     }
 
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
     {
-        // Black pegs
-        const unsigned int black = count_equal_avx2(old_guess);
-        if (black != old_guess_feedback.black()) {
-            return false;
-        }
-
-        // White pegs
-        unsigned int white = 0;
-        for (size_t i = 0; i <= position; ++i) {
-            const auto code_color = code[i];
-            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
-        }
-        return (white - black) == old_guess_feedback.white();
+        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::equal_to<unsigned int>{});
     }
 
     inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
     {
-        // Black pegs
-        const unsigned int black = count_equal_avx2(old_guess);
-        if (black > old_guess_feedback.black()) {
-            return false;
-        }
-
-        // White pegs
-        unsigned int white = 0;
-        for (size_t i = 0; i <= position; ++i) {
-            const auto code_color = code[i];
-            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
-        }
-        return (white - black) <= old_guess_feedback.white();
+        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<unsigned int>{});
     }
 
-    std::generator<NewValue> backtrack() {
+    template<typename Converter>
+        requires std::regular_invocable<Converter, Color>
+    std::generator<NewValue> backtrack(Converter convert) {
         while (true) {
             const Color color = code[position];
             if (static_cast<unsigned int>(color) >= colors) {
@@ -256,7 +260,7 @@ private:
                             return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
 
                             })) {
-                            code[++position] = 0;
+                            code[++position] = convert(0);
                             continue;
                         }
                         else {
@@ -266,8 +270,12 @@ private:
                 }
             }
 
-            ++code[position];
+            code[position] = convert(code[position] + 1);
         }
+    }
+
+    std::generator<NewValue> backtrack() {
+        return backtrack([](Color c) { return c; });
     }
 
     std::generator<NewValue> backtrack_using_only_code_colors() {
@@ -290,50 +298,7 @@ private:
             code[position] = valid_color_converter[color + 1];
         }
 
-        while (true) {
-            const Color color = code[position];
-            if (static_cast<unsigned int>(color) >= colors) {
-                if (position == 0u) {
-                    break;
-                }
-
-                code_frequency_map[code[--position]] = false;
-            }
-            else {
-                if (!code_frequency_map[color]) {
-                    code_frequency_map[color] = true;
-
-                    if (position == last_position) {
-                        if (std::ranges::all_of(history, [&](const auto& h) {
-                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-                            return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
-                            })) {
-
-                            co_yield{};
-                        }
-
-                        code_frequency_map[color] = false;
-                    }
-                    else {
-                        // Partial code pruning
-                        if (std::ranges::all_of(history, [&](const auto& h) {
-                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-
-                            return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
-
-                            })) {
-                            code[++position] = valid_color_converter[0];
-                            continue;
-                        }
-                        else {
-                            code_frequency_map[color] = false;
-                        }
-                    }
-                }
-            }
-
-            code[position] = valid_color_converter[code[position] + 1];
-        }
+        return backtrack([&](Color c) { return valid_color_converter[c]; });
     }
 };
 
