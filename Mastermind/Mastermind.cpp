@@ -22,6 +22,9 @@
 #include <set>
 #include <stack>
 #include <iomanip>
+#include <bit>
+#include <immintrin.h>
+#include <cassert>
 
 
 using Color = unsigned char; // Color represented as a single character
@@ -69,7 +72,7 @@ public:
         }
         // White pegs
         unsigned int white = 0;
-        for (auto color : guess) {
+        for (auto color : guess | std::views::take(pegs)) {
             white += guess_frequency_map[color] && secret_frequency_map[color];
         }
         return { black, white - black };
@@ -92,6 +95,11 @@ struct HistoryFeedbackOrder {
     }
 };
 
+template<std::integral Ta, std::integral Tb>
+Ta ceil(Ta a, Tb b) {
+    return static_cast<Ta>(std::ceil(static_cast<long double>(a)/ static_cast<long double>(a)) * b);
+}
+
 
 // --- CodeBreakerSolver class ---
 class CodeBreakerSolver {
@@ -101,7 +109,6 @@ class CodeBreakerSolver {
     unsigned int colors;
     std::set<History, HistoryFeedbackOrder> history;
     FrequencyMap code_frequency_map;
-    FeedbackCalculator feedback_calculator;
     Code code;
     std::vector<Color> stack;
     size_t position;
@@ -115,8 +122,7 @@ public:
         : pegs(pegs)
         , colors(colors)
         , code_frequency_map(colors, false)
-        , feedback_calculator(pegs, colors)
-        , code(pegs)
+        , code(ceil(pegs, 32u), 0)
         , stack({ 0 })
         , position(0)
         , all_colors_known_mode(false)
@@ -148,23 +154,37 @@ public:
     }
 
 private:
+    inline unsigned int count_equal_avx2(const Code& old_guess) {
+        assert(code.size() == old_guess.size());
+        const size_t size = code.size();
+        unsigned int sum = 0;
+        for (size_t i = 0; i < size; i += 32 / sizeof(Code::value_type)) {
+            // Load 32 bytes from each array
+            __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code.data()));
+            __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess.data()));
+            // Compare for equality
+            __m256i cmp = _mm256_cmpeq_epi8(va, vb);
+            // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
+            unsigned int mask = _mm256_movemask_epi8(cmp);
+            // Count the number of set bits (equal bytes)
+            sum += std::popcount(mask) - static_cast<unsigned int>(size - position);
+        }
+        return sum;
+    }
+
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
     {
         // Black pegs
-        unsigned int black = 0;
-        for (size_t i = 0; i < pegs; ++i) {
-            if (code[i] == old_guess[i]) {
-                ++black;
-            }
-        }
+        const unsigned int black = count_equal_avx2(old_guess);
         if (black != old_guess_feedback.black()) {
             return false;
         }
 
         // White pegs
         unsigned int white = 0;
-        for (auto color : code) {
-            white += code_frequency_map[color] && old_guess_frequency_map[color];
+        for (size_t i = 0; i < position; ++i) {
+            const auto code_color = code[i];
+            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
         }
         return (white - black) == old_guess_feedback.white();
     }
@@ -180,9 +200,6 @@ private:
         }
         if (black > old_guess_feedback.black()) {
             return false;
-        }
-        else {
-            return true;
         }
 
         // White pegs
@@ -246,7 +263,7 @@ private:
         stack.pop_back();
         code_frequency_map[code[--position]] = false;
 
-        auto sorted_code = code;
+        Code sorted_code(code.begin(), code.begin() + pegs);
         std::ranges::sort(sorted_code);
         sorted_code.emplace_back(colors);
 
@@ -349,22 +366,22 @@ int main() {
     std::array<std::array<std::chrono::microseconds, count>, nb_tries> times{};
     for (auto i : std::views::iota(0u, nb_tries)) {
         for (auto j : std::views::iota(0u, count)) {
-            const auto secret = generate_secret(pegs, colors, 42 + j);    // Pseudo-random secret
+            const Code secret = generate_secret(pegs, colors, 42 + j);    // Pseudo-random secret
 
             Code guess;
             Timer timer;
             CodeBreakerSolver code_breaker(pegs, colors);
             while (code_breaker.can_continue()) {
                 guess = code_breaker.next_guess();
-                Feedback fb = feedback_calculator.get_feedback(guess, secret);
-                if (fb.black() == pegs) {
+                Feedback feedback = feedback_calculator.get_feedback(guess, secret);
+                if (feedback.black() == pegs) {
                     break;
                 }
-                code_breaker.apply_feedback(fb);
+                code_breaker.apply_feedback(feedback);
             }
             const auto elapsed_time = timer.elapsed_seconds();
             times[i][j] = elapsed_time;
-            if (guess != secret) {
+            if ((guess | std::views::take(pegs) | std::ranges::to<Code>()) != secret) {
                 std::cout << "Error for secret: " << secret << std::endl;
                 return 0;
             }
