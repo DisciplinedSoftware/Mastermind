@@ -192,13 +192,7 @@ private:
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
     {
         // Black pegs
-        //const unsigned int black = count_equal_avx2(old_guess);
-        unsigned int black = 0;
-        for (size_t i = 0; i <= position; ++i) {
-            if (code[i] == old_guess[i]) {
-                ++black;
-            }
-        }
+        const unsigned int black = count_equal_avx2(old_guess);
         if (black != old_guess_feedback.black()) {
             return false;
         }
@@ -215,13 +209,7 @@ private:
     inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
     {
         // Black pegs
-        //const unsigned int black = count_equal_avx2(old_guess);
-        unsigned int black = 0;
-        for (size_t i = 0; i <= position; ++i) {
-            if (code[i] == old_guess[i]) {
-                ++black;
-            }
-        }
+        const unsigned int black = count_equal_avx2(old_guess);
         if (black > old_guess_feedback.black()) {
             return false;
         }
