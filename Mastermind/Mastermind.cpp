@@ -190,9 +190,9 @@ private:
     //    return sum + std::popcount(mask & user_mask);
     //}
 
-    template<typename Oper>
-        requires std::predicate<Oper, unsigned int, unsigned int>
-    inline bool compare_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map, Oper oper)
+    template<typename Pred>
+        requires std::predicate<Pred, unsigned int, unsigned int>
+    inline bool compare_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map, Pred pred)
     {
         // Black pegs
         //const unsigned int black = count_equal_avx2(old_guess);
@@ -202,7 +202,7 @@ private:
                 ++black;
             }
         }
-        if (!oper(black, old_guess_feedback.black())) {
+        if (!pred(black, old_guess_feedback.black())) {
             return false;
         }
 
@@ -212,7 +212,7 @@ private:
             const auto code_color = code[i];
             white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
         }
-        return oper((white - black), old_guess_feedback.white());
+        return pred((white - black), old_guess_feedback.white());
     }
 
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
