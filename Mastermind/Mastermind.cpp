@@ -33,6 +33,12 @@ using Code = std::vector<Color>;
 
 using FrequencyMap = std::vector<bool>;
 
+// Print a code using letters
+std::ostream& operator<<(std::ostream& stream, const Code& code) {
+    for (auto peg : code | std::views::transform([](auto c) -> char { return c + 'A'; })) stream << peg;
+    return stream;
+}
+
 // Feedback: encapsulates black and white peg counts
 class Feedback {
     unsigned int black_;
@@ -105,13 +111,13 @@ Ta ceil(Ta a, Tb b) {
 class CodeBreakerSolver {
     struct NewValue {};
 
-    unsigned int pegs;
-    unsigned int colors;
+    const unsigned int pegs;
+    const unsigned int colors;
     std::set<History, HistoryFeedbackOrder> history;
     FrequencyMap code_frequency_map;
     Code code;
-    std::vector<Color> stack;
     size_t position;
+    const size_t last_position;
     bool all_colors_known_mode;
     std::vector<Color> valid_color_converter;
     std::generator<NewValue> code_gen;
@@ -123,8 +129,8 @@ public:
         , colors(colors)
         , code_frequency_map(colors, false)
         , code(ceil(pegs, 32u), 0)
-        , stack({ 0 })
         , position(0)
+        , last_position(pegs - 1)
         , all_colors_known_mode(false)
         , valid_color_converter(colors + 1)
         , code_gen(backtrack())
@@ -154,35 +160,52 @@ public:
     }
 
 private:
+    inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data)
+    {
+        // Load 32 bytes from each array
+        __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
+        __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
+        // Compare for equality
+        __m256i cmp = _mm256_cmpeq_epi8(va, vb);
+        // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
+        return _mm256_movemask_epi8(cmp);
+    }
+
     inline unsigned int count_equal_avx2(const Code& old_guess) {
+        constexpr size_t increment = 32 / sizeof(Code::value_type);
         assert(code.size() == old_guess.size());
-        const size_t size = code.size();
         unsigned int sum = 0;
-        for (size_t i = 0; i < size; i += 32 / sizeof(Code::value_type)) {
-            // Load 32 bytes from each array
-            __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code.data()));
-            __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess.data()));
-            // Compare for equality
-            __m256i cmp = _mm256_cmpeq_epi8(va, vb);
-            // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
-            unsigned int mask = _mm256_movemask_epi8(cmp);
-            // Count the number of set bits (equal bytes)
-            sum += std::popcount(mask) - static_cast<unsigned int>(size - position);
+        size_t i = 0;
+        for (; i + increment < position; i += increment) {
+            const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+            // Count the number of equal elements
+            sum += std::popcount(mask);
         }
-        return sum;
+
+        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+        // Create a mask for the first n bytes
+        const std::uint32_t user_mask = (1u << (position-i+1)) - 1;
+        // Only count matches in masked positions
+        return sum + std::popcount(mask & user_mask);
     }
 
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
     {
         // Black pegs
-        const unsigned int black = count_equal_avx2(old_guess);
+        //const unsigned int black = count_equal_avx2(old_guess);
+        unsigned int black = 0;
+        for (size_t i = 0; i <= position; ++i) {
+            if (code[i] == old_guess[i]) {
+                ++black;
+            }
+        }
         if (black != old_guess_feedback.black()) {
             return false;
         }
 
         // White pegs
         unsigned int white = 0;
-        for (size_t i = 0; i < position; ++i) {
+        for (size_t i = 0; i <= position; ++i) {
             const auto code_color = code[i];
             white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
         }
@@ -192,6 +215,7 @@ private:
     inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
     {
         // Black pegs
+        //const unsigned int black = count_equal_avx2(old_guess);
         unsigned int black = 0;
         for (size_t i = 0; i <= position; ++i) {
             if (code[i] == old_guess[i]) {
@@ -212,115 +236,115 @@ private:
     }
 
     std::generator<NewValue> backtrack() {
-        while (!stack.empty()) {
-            Color& color = stack.back();
-            if (position == pegs) {
-                if (std::ranges::all_of(history, [&](const auto& h) {
-                    const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-                    return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
-                    })) {
-
-                    co_yield {};
-                }
-                stack.pop_back();
-                code_frequency_map[code[--position]] = false;
-            }
-            else if (static_cast<unsigned int>(color) >= colors) {
+        while (true) {
+            const Color color = code[position];
+            if (static_cast<unsigned int>(color) >= colors) {
                 if (position == 0u) {
                     break;
                 }
 
-                stack.pop_back();
                 code_frequency_map[code[--position]] = false;
             }
             else {
-                code[position] = color;
-
                 if (!code_frequency_map[color]) {
                     code_frequency_map[color] = true;
 
-                    // Partial code pruning
-                    if (std::ranges::all_of(history, [&](const auto& h) {
-                        const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
+                    if (position == last_position) {
+                        if (std::ranges::all_of(history, [&](const auto& h) {
+                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
+                            return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
+                            })) {
 
-                        return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
+                            co_yield{};
+                        }
 
-                        })) {
-                        ++position;
-                        stack.push_back(0);
-                    }
-                    else {
                         code_frequency_map[color] = false;
                     }
-                }
+                    else {
+                        // Partial code pruning
+                        if (std::ranges::all_of(history, [&](const auto& h) {
+                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
 
-                ++color;
+                            return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
+
+                            })) {
+                            code[++position] = 0;
+                            continue;
+                        }
+                        else {
+                            code_frequency_map[color] = false;
+                        }
+                    }
+                }
             }
+
+            ++code[position];
         }
     }
 
     std::generator<NewValue> backtrack_using_only_code_colors() {
-        stack.pop_back();
-        code_frequency_map[code[--position]] = false;
+        {
+            const Color color = code[position];
+            code_frequency_map[color] = false;
 
-        Code sorted_code(code.begin(), code.begin() + pegs);
-        std::ranges::sort(sorted_code);
-        sorted_code.emplace_back(colors);
+            Code sorted_code(code.begin(), code.begin() + pegs);
+            std::ranges::sort(sorted_code);
+            sorted_code.emplace_back(colors);
 
-        size_t c = 0;
-        for (size_t i = 0; i <= colors; ++i) {
-            if (i > sorted_code[c]) {
-                ++c;
-            }
-            valid_color_converter[i] = sorted_code[c];
-        }
-
-        for (auto& color : stack) {
-            color = valid_color_converter[color];
-        }
-
-        while (!stack.empty()) {
-            Color& color = stack.back();
-            if (position == pegs) {
-                if (std::ranges::all_of(history, [&](const auto& h) {
-                    const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-                    return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
-                    })) {
-
-                    co_yield {};
+            size_t c = 0;
+            for (size_t i = 0; i <= colors; ++i) {
+                if (i > sorted_code[c]) {
+                    ++c;
                 }
-                stack.pop_back();
-                code_frequency_map[code[--position]] = false;
+                valid_color_converter[i] = sorted_code[c];
             }
-            else if (static_cast<unsigned int>(color) >= colors) {
+
+            code[position] = valid_color_converter[color + 1];
+        }
+
+        while (true) {
+            const Color color = code[position];
+            if (static_cast<unsigned int>(color) >= colors) {
                 if (position == 0u) {
                     break;
                 }
 
-                stack.pop_back();
                 code_frequency_map[code[--position]] = false;
             }
             else {
-                code[position] = color;
-
                 if (!code_frequency_map[color]) {
                     code_frequency_map[color] = true;
 
-                    // Partial code pruning
-                    if (std::ranges::all_of(history, [&](const auto& h) {
-                        const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-                        return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
-                        })) {
-                        ++position;
-                        stack.push_back(valid_color_converter[0]);
-                    }
-                    else {
+                    if (position == last_position) {
+                        if (std::ranges::all_of(history, [&](const auto& h) {
+                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
+                            return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
+                            })) {
+
+                            co_yield{};
+                        }
+
                         code_frequency_map[color] = false;
                     }
-                }
+                    else {
+                        // Partial code pruning
+                        if (std::ranges::all_of(history, [&](const auto& h) {
+                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
 
-                color = valid_color_converter[color+1];
+                            return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
+
+                            })) {
+                            code[++position] = valid_color_converter[0];
+                            continue;
+                        }
+                        else {
+                            code_frequency_map[color] = false;
+                        }
+                    }
+                }
             }
+
+            code[position] = valid_color_converter[code[position] + 1];
         }
     }
 };
@@ -349,12 +373,6 @@ public:
         return std::chrono::duration_cast<std::chrono::microseconds>(end - start_);
     }
 };
-
-// Print a code using letters
-std::ostream& operator<<(std::ostream& stream, const Code& code) {
-    for (auto peg : code | std::views::transform([](auto c) -> char { return c + 'A'; })) stream << peg;
-    return stream;
-}
 
 int main() {
     const auto pegs = 5;
