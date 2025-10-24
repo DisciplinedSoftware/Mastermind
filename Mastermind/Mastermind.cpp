@@ -23,14 +23,49 @@
 #include <stack>
 #include <iomanip>
 #include <bit>
-#include <immintrin.h>
 #include <cassert>
 #include <concepts>
+#include <cstdlib>
+#include <immintrin.h>
 
+
+
+
+template <typename T, std::size_t Alignment = 32>
+struct aligned_allocator {
+    using value_type = T;
+    using pointer = T*;
+    using const_pointer = const T*;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+
+    template <class U> struct rebind { using other = aligned_allocator<U, Alignment>; };
+
+    aligned_allocator() noexcept {}
+
+    template <class U>
+    aligned_allocator(const aligned_allocator<U, Alignment>&) noexcept {}
+
+    T* allocate(std::size_t n) {
+        void* ptr = nullptr;
+        ptr = _aligned_malloc(n * sizeof(T), Alignment);
+        if (!ptr) throw std::bad_alloc();
+        return static_cast<T*>(ptr);
+    }
+
+    void deallocate(T* p, std::size_t) noexcept {
+        _aligned_free(p);
+    }
+};
+
+template <typename T, typename U, std::size_t Alignment>
+bool operator==(const aligned_allocator<T, Alignment>&, const aligned_allocator<U, Alignment>&) { return true; }
+template <typename T, typename U, std::size_t Alignment>
+bool operator!=(const aligned_allocator<T, Alignment>&, const aligned_allocator<U, Alignment>&) { return false; }
 
 using Color = std::uint8_t; // Color represented as a single byte
 using Colors = std::vector<Color>;
-using Code = std::vector<Color>;
+using Code = std::vector<Color, aligned_allocator<Color, 32>>;
 
 using FrequencyMap = std::vector<bool>;
 
@@ -129,7 +164,8 @@ public:
         : pegs(pegs)
         , colors(colors)
         , code_frequency_map(colors, false)
-        , code(/*ceil_to_multiple_of(pegs, 32u/sizeof(Color))*/pegs, 0)
+        //, code(pegs, 0)
+        , code(ceil_to_multiple_of(pegs, 32u / sizeof(Color)), 0)
         , position(0)
         , last_position(pegs - 1)
         , all_colors_known_mode(false)
@@ -161,57 +197,77 @@ public:
     }
 
 private:
-    //inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data)
-    //{
-    //    // Load 32 bytes from each array
-    //    __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
-    //    __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
-    //    // Compare for equality
-    //    __m256i cmp = _mm256_cmpeq_epi8(va, vb);
-    //    // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
-    //    return _mm256_movemask_epi8(cmp);
-    //}
+    inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data)
+    {
+        // Load 32 bytes from each array
+        __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
+        __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
+        // Compare for equality
+        __m256i cmp = _mm256_cmpeq_epi8(va, vb);
+        // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
+        return _mm256_movemask_epi8(cmp);
+    }
 
-    //inline unsigned int count_equal_avx2(const Code& old_guess) {
-    //    constexpr size_t increment = 32 / sizeof(Code::value_type);
-    //    assert(code.size() == old_guess.size());
-    //    unsigned int sum = 0;
-    //    size_t i = 0;
-    //    for (; i + increment < position; i += increment) {
-    //        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-    //        // Count the number of equal elements
-    //        sum += std::popcount(mask);
-    //    }
+    inline unsigned int count_equal_avx2(const Code& old_guess) {
+        constexpr size_t increment = 32 / sizeof(Code::value_type);
+        assert(code.size() == old_guess.size());
+        unsigned int sum = 0;
+        size_t i = 0;
+        for (; i + increment < position; i += increment) {
+            const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+            // Count the number of equal elements
+            sum += std::popcount(mask);
+        }
 
-    //    const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-    //    // Create a mask for the first n bytes
-    //    const std::uint32_t user_mask = (1u << (position-i+1)) - 1;
-    //    // Only count matches in masked positions
-    //    return sum + std::popcount(mask & user_mask);
-    //}
+        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+        // Create a mask for the first n bytes
+        const std::uint32_t user_mask = (1u << (position-i+1)) - 1;
+        // Only count matches in masked positions
+        return sum + std::popcount(mask & user_mask);
+    }
+
+    inline unsigned int count_equal_avx2_single(const Code& old_guess) {
+        assert(code.size() == old_guess.size());
+        assert(code.size() < 32 / sizeof(Code::value_type));
+
+        const std::uint32_t mask = compare_codes(code.data(), old_guess.data());
+        // Create a mask for the first n bytes
+        const std::uint32_t user_mask = (1u << (position + 1)) - 1;
+        // Only count matches in masked positions
+        return std::popcount(mask & user_mask);
+    }
+
+    inline unsigned int count_equivalent_asm_single(const FrequencyMap& old_guess_frequency_map) {
+        unsigned int white = 0;
+        for (size_t i = 0; i <= position; ++i) {
+            const auto code_color = code[i];
+            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
+        }
+    }
 
     template<typename Pred>
         requires std::predicate<Pred, unsigned int, unsigned int>
     inline bool compare_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map, Pred pred)
     {
         // Black pegs
-        //const unsigned int black = count_equal_avx2(old_guess);
-        unsigned int black = 0;
-        for (size_t i = 0; i <= position; ++i) {
-            if (code[i] == old_guess[i]) {
-                ++black;
-            }
-        }
+        const unsigned int black = count_equal_avx2_single(old_guess);
+        //unsigned int black = 0;
+        //for (size_t i = 0; i <= position; ++i) {
+        //    if (code[i] == old_guess[i]) {
+        //        ++black;
+        //    }
+        //}
         if (!pred(black, old_guess_feedback.black())) {
             return false;
         }
 
         // White pegs
-        unsigned int white = 0;
-        for (size_t i = 0; i <= position; ++i) {
-            const auto code_color = code[i];
-            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
-        }
+        const unsigned int white = count_equivalent_asm_single(old_guess_frequency_map);
+        //unsigned int white = 0;
+        //for (size_t i = 0; i <= position; ++i) {
+        //    const auto code_color = code[i];
+        //    white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
+        //}
         return pred((white - black), old_guess_feedback.white());
     }
 
