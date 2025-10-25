@@ -90,6 +90,15 @@ public:
         return map[index / bitset_size][index % bitset_size];
     }
 
+    //inline unsigned int compare_and_count(const FrequencyMap& other) const {
+    //    return std::ranges::fold_left(std::views::zip(map, other.map),
+    //        0u,
+    //        [](unsigned int acc, const auto& pair) {
+    //            const auto [a, b] = pair;
+    //            return acc + std::popcount((std::get<0>(pair) & std::get<1>(pair)).to_ulong());
+    //        });
+    //}
+
     inline unsigned int compare_and_count(const FrequencyMap& other) const {
         unsigned int count = 0;
         assert(map.size() == other.map.size());
@@ -133,32 +142,39 @@ static inline std::uint32_t compare_codes(const std::uint8_t* code_data, const s
     return _mm256_movemask_epi8(cmp);
 }
 
-static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-    constexpr size_t increment = 32 / sizeof(Code::value_type);
-    assert(code.size() == old_guess.size());
-    unsigned int sum = 0;
-    size_t i = 0;
-    for (; i + increment < position; i += increment) {
-        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-        // Count the number of equal elements
-        sum += std::popcount(mask);
-    }
+//static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
+//    constexpr size_t increment = 32 / sizeof(Code::value_type);
+//    assert(code.size() == old_guess.size());
+//    unsigned int sum = 0;
+//    size_t i = 0;
+//    for (; i + increment < position; i += increment) {
+//        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+//        // Count the number of equal elements
+//        sum += std::popcount(mask);
+//    }
+//
+//    const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+//    // Create a mask for the first n bytes
+//    const std::uint32_t user_mask = (1u << (position - i + 1)) - 1;
+//    // Only count matches in masked positions
+//    return sum + std::popcount(mask & user_mask);
+//}
 
-    const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-    // Create a mask for the first n bytes
-    const std::uint32_t user_mask = (1u << (position - i + 1)) - 1;
-    // Only count matches in masked positions
-    return sum + std::popcount(mask & user_mask);
+static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
+    unsigned int black = 0;
+    for (size_t i = 0; i <= position; ++i) {
+        if (code[i] == old_guess[i]) {
+            ++black;
+        }
+    }
+    return black;
 }
 
 //static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-//    unsigned int black = 0;
-//    for (size_t i = 0; i <= position; ++i) {
-//        if (code[i] == old_guess[i]) {
-//            ++black;
-//        }
-//    }
-//    return black;
+//    return static_cast<unsigned int>(std::ranges::count_if(
+//        std::views::iota(size_t{ 0 }, position + 1),
+//        [&](size_t i) { return code[i] == old_guess[i]; }
+//    ));
 //}
 
 static inline unsigned int count_white_pegs(const FrequencyMap& code_frequency_map,
@@ -241,8 +257,8 @@ public:
         : pegs(pegs)
         , colors(colors)
         , code_frequency_map(colors, decltype(code_frequency_map)::value_type())
-        //, code(pegs, 0)
-        , code(ceil_to_multiple_of(pegs, 32u / sizeof(Color)), 0)
+        , code(pegs, 0)
+        //, code(ceil_to_multiple_of(pegs, 32u / sizeof(Color)), 0)
         , position(0)
         , last_position(pegs - 1)
         , all_colors_known_mode(false)
