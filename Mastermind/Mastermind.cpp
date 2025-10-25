@@ -26,6 +26,7 @@
 #include <cassert>
 #include <concepts>
 #include <cstdlib>
+#include <bitset>
 #include <immintrin.h>
 
 
@@ -68,12 +69,8 @@ using Colors = std::vector<Color>;
 using Code = std::vector<Color, aligned_allocator<Color, 32>>;
 
 using FrequencyMap = std::vector<bool>;
+//using FrequencyMap = std::vector<std::bitset<32>>;
 
-// Print a code using letters
-std::ostream& operator<<(std::ostream& stream, const Code& code) {
-    for (auto peg : code | std::views::transform([](auto c) -> char { return c + 'A'; })) stream << peg;
-    return stream;
-}
 
 // Feedback: encapsulates black and white peg counts
 class Feedback {
@@ -85,6 +82,14 @@ public:
     unsigned int white() const { return white_; }
     bool operator==(const Feedback& other) const = default;
 };
+
+
+// Print a code using letters
+std::ostream& operator<<(std::ostream& stream, const Code& code) {
+    for (auto peg : code | std::views::transform([](auto c) -> char { return c + 'A'; })) stream << peg;
+    return stream;
+}
+
 
 // FeedbackCalculator: encapsulates feedback logic and reuses count vectors
 class FeedbackCalculator {
@@ -101,8 +106,8 @@ public:
     }
 
     Feedback get_feedback(const Code& guess, const Code& secret) {
-        std::ranges::fill(guess_frequency_map, false);
-        std::ranges::fill(secret_frequency_map, false);
+        std::ranges::fill(guess_frequency_map, FrequencyMap::value_type());
+        std::ranges::fill(secret_frequency_map, FrequencyMap::value_type());
         // Black pegs
         unsigned int black = 0;
         for (size_t i = 0; i < pegs; ++i) {
@@ -197,8 +202,7 @@ public:
     }
 
 private:
-    inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data)
-    {
+    static inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data) {
         // Load 32 bytes from each array
         __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
         __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
@@ -208,7 +212,7 @@ private:
         return _mm256_movemask_epi8(cmp);
     }
 
-    inline unsigned int count_equal_avx2(const Code& old_guess) {
+    static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
         constexpr size_t increment = 32 / sizeof(Code::value_type);
         assert(code.size() == old_guess.size());
         unsigned int sum = 0;
@@ -221,63 +225,55 @@ private:
 
         const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
         // Create a mask for the first n bytes
-        const std::uint32_t user_mask = (1u << (position-i+1)) - 1;
+        const std::uint32_t user_mask = (1u << (position - i + 1)) - 1;
         // Only count matches in masked positions
         return sum + std::popcount(mask & user_mask);
     }
 
-    inline unsigned int count_equal_avx2_single(const Code& old_guess) {
-        assert(code.size() == old_guess.size());
-        assert(code.size() < 32 / sizeof(Code::value_type));
+    //static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
+    //    unsigned int black = 0;
+    //    for (size_t i = 0; i <= position; ++i) {
+    //        if (code[i] == old_guess[i]) {
+    //            ++black;
+    //        }
+    //    }
+    //    return black;
+    //}
 
-        const std::uint32_t mask = compare_codes(code.data(), old_guess.data());
-        // Create a mask for the first n bytes
-        const std::uint32_t user_mask = (1u << (position + 1)) - 1;
-        // Only count matches in masked positions
-        return std::popcount(mask & user_mask);
-    }
-
-    inline unsigned int count_equivalent_asm_single(const FrequencyMap& old_guess_frequency_map) {
+    static inline unsigned int count_white_pegs(const Code& code,
+        const FrequencyMap& code_frequency_map,
+        const FrequencyMap& old_guess_frequency_map,
+        size_t position) {
         unsigned int white = 0;
         for (size_t i = 0; i <= position; ++i) {
             const auto code_color = code[i];
             white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
         }
+        return white;
     }
 
     template<typename Pred>
         requires std::predicate<Pred, unsigned int, unsigned int>
-    inline bool compare_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map, Pred pred)
-    {
+    inline bool compare_feedback(const Code& old_guess,
+                                 const Feedback& old_guess_feedback,
+                                 const FrequencyMap& old_guess_frequency_map,
+                                 Pred pred) {
         // Black pegs
-        const unsigned int black = count_equal_avx2_single(old_guess);
-        //unsigned int black = 0;
-        //for (size_t i = 0; i <= position; ++i) {
-        //    if (code[i] == old_guess[i]) {
-        //        ++black;
-        //    }
-        //}
+        const unsigned int black = count_black_pegs(code, old_guess, position);
         if (!pred(black, old_guess_feedback.black())) {
             return false;
         }
 
         // White pegs
-        const unsigned int white = count_equivalent_asm_single(old_guess_frequency_map);
-        //unsigned int white = 0;
-        //for (size_t i = 0; i <= position; ++i) {
-        //    const auto code_color = code[i];
-        //    white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
-        //}
+        const unsigned int white = count_white_pegs(code, code_frequency_map, old_guess_frequency_map, position);
         return pred((white - black), old_guess_feedback.white());
     }
 
-    inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
-    {
+    inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
         return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::equal_to<unsigned int>{});
     }
 
-    inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map)
-    {
+    inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
         return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<unsigned int>{});
     }
 
