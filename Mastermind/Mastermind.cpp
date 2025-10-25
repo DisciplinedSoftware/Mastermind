@@ -68,8 +68,40 @@ using Color = std::uint8_t; // Color represented as a single byte
 using Colors = std::vector<Color>;
 using Code = std::vector<Color, aligned_allocator<Color, 32>>;
 
-using FrequencyMap = std::vector<bool>;
-//using FrequencyMap = std::vector<std::bitset<32>>;
+//using FrequencyMap = std::vector<bool>;
+
+class FrequencyMap {
+    static constexpr size_t bitset_size = 32;
+    std::vector<std::bitset<bitset_size>> map;
+public:
+    using value_type = decltype(map)::value_type;
+    using reference = decltype(map)::value_type::reference;
+
+    static_assert(sizeof(unsigned long) <= bitset_size / 8, "Unsigned long cannot hold bitset size, change to a larger type");
+
+    FrequencyMap(size_t count) : map(count / bitset_size + 1){}
+    FrequencyMap(size_t count, const value_type& value) : map(count / bitset_size + 1, value) {}
+
+    inline bool operator[](size_t index) const {
+        return map[index / bitset_size][index % bitset_size];
+    }
+
+    inline reference operator[](size_t index) {
+        return map[index / bitset_size][index % bitset_size];
+    }
+
+    unsigned int compare_and_count(const FrequencyMap& other) const {
+        unsigned int count = 0;
+        assert(map.size() == other.map.size());
+        for (size_t i = 0; i < map.size(); i += bitset_size) {
+            count += std::popcount((map[i] & other.map[i]).to_ulong());
+        }
+        return count;
+    }
+
+    auto begin() { return map.begin(); }
+    auto end() { return map.end(); }
+};
 
 
 // Feedback: encapsulates black and white peg counts
@@ -91,6 +123,52 @@ std::ostream& operator<<(std::ostream& stream, const Code& code) {
 }
 
 
+static inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data) {
+    // Load 32 bytes from each array
+    __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
+    __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
+    // Compare for equality
+    __m256i cmp = _mm256_cmpeq_epi8(va, vb);
+    // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
+    return _mm256_movemask_epi8(cmp);
+}
+
+static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
+    constexpr size_t increment = 32 / sizeof(Code::value_type);
+    assert(code.size() == old_guess.size());
+    unsigned int sum = 0;
+    size_t i = 0;
+    for (; i + increment < position; i += increment) {
+        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+        // Count the number of equal elements
+        sum += std::popcount(mask);
+    }
+
+    const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
+    // Create a mask for the first n bytes
+    const std::uint32_t user_mask = (1u << (position - i + 1)) - 1;
+    // Only count matches in masked positions
+    return sum + std::popcount(mask & user_mask);
+}
+
+//static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
+//    unsigned int black = 0;
+//    for (size_t i = 0; i <= position; ++i) {
+//        if (code[i] == old_guess[i]) {
+//            ++black;
+//        }
+//    }
+//    return black;
+//}
+
+static inline unsigned int count_white_pegs(const FrequencyMap& code_frequency_map,
+                                            const FrequencyMap& old_guess_frequency_map,
+                                            unsigned int black) {
+    const unsigned int white = code_frequency_map.compare_and_count(old_guess_frequency_map);
+    return white - black;
+}
+
+
 // FeedbackCalculator: encapsulates feedback logic and reuses count vectors
 class FeedbackCalculator {
     unsigned int pegs;
@@ -108,21 +186,15 @@ public:
     Feedback get_feedback(const Code& guess, const Code& secret) {
         std::ranges::fill(guess_frequency_map, FrequencyMap::value_type());
         std::ranges::fill(secret_frequency_map, FrequencyMap::value_type());
-        // Black pegs
-        unsigned int black = 0;
+
         for (size_t i = 0; i < pegs; ++i) {
             guess_frequency_map[guess[i]] = true;
             secret_frequency_map[secret[i]] = true;
-            if (guess[i] == secret[i]) {
-                ++black;
-            }
         }
-        // White pegs
-        unsigned int white = 0;
-        for (auto color : guess | std::views::take(pegs)) {
-            white += guess_frequency_map[color] && secret_frequency_map[color];
-        }
-        return { black, white - black };
+
+        const unsigned int black = count_black_pegs(guess, secret, pegs - 1);
+        const unsigned int white = count_white_pegs(guess_frequency_map, secret_frequency_map, black);
+        return { black, white };
     }
 };
 
@@ -168,7 +240,7 @@ public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
         : pegs(pegs)
         , colors(colors)
-        , code_frequency_map(colors, false)
+        , code_frequency_map(colors, decltype(code_frequency_map)::value_type())
         //, code(pegs, 0)
         , code(ceil_to_multiple_of(pegs, 32u / sizeof(Color)), 0)
         , position(0)
@@ -202,56 +274,6 @@ public:
     }
 
 private:
-    static inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data) {
-        // Load 32 bytes from each array
-        __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
-        __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
-        // Compare for equality
-        __m256i cmp = _mm256_cmpeq_epi8(va, vb);
-        // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
-        return _mm256_movemask_epi8(cmp);
-    }
-
-    static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-        constexpr size_t increment = 32 / sizeof(Code::value_type);
-        assert(code.size() == old_guess.size());
-        unsigned int sum = 0;
-        size_t i = 0;
-        for (; i + increment < position; i += increment) {
-            const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-            // Count the number of equal elements
-            sum += std::popcount(mask);
-        }
-
-        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-        // Create a mask for the first n bytes
-        const std::uint32_t user_mask = (1u << (position - i + 1)) - 1;
-        // Only count matches in masked positions
-        return sum + std::popcount(mask & user_mask);
-    }
-
-    //static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-    //    unsigned int black = 0;
-    //    for (size_t i = 0; i <= position; ++i) {
-    //        if (code[i] == old_guess[i]) {
-    //            ++black;
-    //        }
-    //    }
-    //    return black;
-    //}
-
-    static inline unsigned int count_white_pegs(const Code& code,
-        const FrequencyMap& code_frequency_map,
-        const FrequencyMap& old_guess_frequency_map,
-        size_t position) {
-        unsigned int white = 0;
-        for (size_t i = 0; i <= position; ++i) {
-            const auto code_color = code[i];
-            white += code_frequency_map[code_color] && old_guess_frequency_map[code_color];
-        }
-        return white;
-    }
-
     template<typename Pred>
         requires std::predicate<Pred, unsigned int, unsigned int>
     inline bool compare_feedback(const Code& old_guess,
@@ -265,8 +287,8 @@ private:
         }
 
         // White pegs
-        const unsigned int white = count_white_pegs(code, code_frequency_map, old_guess_frequency_map, position);
-        return pred((white - black), old_guess_feedback.white());
+        const unsigned int white = count_white_pegs(code_frequency_map, old_guess_frequency_map, black);
+        return pred(white, old_guess_feedback.white());
     }
 
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
