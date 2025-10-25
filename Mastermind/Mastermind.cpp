@@ -27,6 +27,7 @@
 #include <concepts>
 #include <cstdlib>
 #include <bitset>
+#include <map>
 #include <immintrin.h>
 
 
@@ -214,19 +215,21 @@ public:
     }
 };
 
+bool operator>(const Feedback& fb_a, const Feedback& fb_b) {
+    if (fb_a.black() != fb_b.black())
+        return fb_a.black() > fb_b.black();
+    if (fb_a.white() != fb_b.white())
+        return fb_a.white() > fb_b.white();
+    return false;
+}
 
-using History = std::tuple<Code, Feedback, FrequencyMap>;
+
+using History = std::tuple<Code, FrequencyMap>;
 
 // Add above CodeBreakerSolver
 struct HistoryFeedbackOrder {
-    bool operator()(const History& a, const History& b) const {
-        const auto& fb_a = std::get<1>(a);
-        const auto& fb_b = std::get<1>(b);
-        if (fb_a.black() != fb_b.black())
-            return fb_a.black() > fb_b.black();
-        if (fb_a.white() != fb_b.white())
-            return fb_a.white() > fb_b.white();
-        return false;
+    bool operator()(const Feedback& fb_a, const Feedback& fb_b) const {
+        return fb_a > fb_b;
     }
 };
 
@@ -241,14 +244,16 @@ class CodeBreakerSolver {
     struct NewValue {};
 
     const unsigned int pegs;
-    const unsigned int colors;
-    std::set<History, HistoryFeedbackOrder> history;
+    unsigned int colors;
+    std::map<Feedback, History, std::greater<Feedback>> history;
     FrequencyMap code_frequency_map;
     Code code;
     size_t position;
     const size_t last_position;
     bool all_colors_known_mode;
     std::vector<Color> valid_color_converter;
+    std::function<Code(const Code&)> convert_code_color;
+    std::vector<Color> color_map;
     std::generator<NewValue> code_gen;
     decltype(code_gen.begin()) code_it;
 
@@ -263,16 +268,18 @@ public:
         , last_position(pegs - 1)
         , all_colors_known_mode(false)
         , valid_color_converter(colors + 1)
+        , color_map(colors)
+        , convert_code_color([this](const Code& code) { return code; })
         , code_gen(backtrack())
         , code_it(code_gen.begin()) {
     }
 
     Code next_guess() {
-        return code;
+        return convert_code_color(code);
     }
 
     void apply_feedback(const Feedback& feedback) {
-        history.emplace(code, feedback, code_frequency_map);
+        history.emplace(feedback, History{ code, code_frequency_map });
 
         // Check if we should switch to permutation mode
         if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
@@ -315,9 +322,7 @@ private:
         return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<unsigned int>{});
     }
 
-    template<typename Converter>
-        requires std::regular_invocable<Converter, Color>
-    std::generator<NewValue> backtrack(Converter convert) {
+    std::generator<NewValue> backtrack() {
         while (true) {
             const Color color = code[position];
             if (static_cast<unsigned int>(color) >= colors) {
@@ -333,7 +338,8 @@ private:
 
                     if (position == last_position) {
                         if (std::ranges::all_of(history, [&](const auto& h) {
-                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
+                            const auto& [old_guess_feedback, data] = h;
+                            const auto& [old_guess, old_guess_frequency_map] = data;
                             return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
                             })) {
 
@@ -345,12 +351,12 @@ private:
                     else {
                         // Partial code pruning
                         if (std::ranges::all_of(history, [&](const auto& h) {
-                            const auto& [old_guess, old_guess_feedback, old_guess_frequency_map] = h;
-
+                            const auto& [old_guess_feedback, data] = h;
+                            const auto& [old_guess, old_guess_frequency_map] = data;
                             return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
 
                             })) {
-                            code[++position] = convert(0);
+                            code[++position] = 0;
                             continue;
                         }
                         else {
@@ -360,35 +366,63 @@ private:
                 }
             }
 
-            code[position] = convert(code[position] + 1);
+            ++code[position];
         }
-    }
-
-    std::generator<NewValue> backtrack() {
-        return backtrack([](Color c) { return c; });
     }
 
     std::generator<NewValue> backtrack_using_only_code_colors() {
-        {
-            const Color color = code[position];
-            code_frequency_map[color] = false;
+        create_color_map();
+        convert_code_and_history();
 
-            Code sorted_code(code.begin(), code.begin() + pegs);
-            std::ranges::sort(sorted_code);
-            sorted_code.emplace_back(colors);
+        colors = pegs;
+        convert_code_color = [this](const Code& code) { return code
+            | std::views::transform([this](Color color) { return color_map[color]; })
+            | std::ranges::to<Code>(); };
 
-            size_t c = 0;
-            for (size_t i = 0; i <= colors; ++i) {
-                if (i > sorted_code[c]) {
-                    ++c;
-                }
-                valid_color_converter[i] = sorted_code[c];
+        // Free last color
+        code_frequency_map[code[position]] = false;
+        return backtrack();
+    }
+
+    void create_color_map() {
+        std::ranges::copy(code.begin(), code.begin() + pegs, color_map.begin());
+        std::ranges::sort(color_map.begin(), color_map.begin() + pegs);
+
+        Color c = 0;
+        size_t j = 0;
+        for (size_t i = pegs; i < colors; ++i) {
+            // Find next missing color
+            while (j < pegs && color_map[j] <= c) {
+                ++c;
+                ++j;
             }
 
-            code[position] = valid_color_converter[color + 1];
+            color_map[i] = c++;
+        }
+    }
+
+    void convert_code_and_history()
+    {
+        Colors reverse_color_map(colors, 0);
+        for (const auto [i, c] : std::views::enumerate(color_map)) {
+            reverse_color_map[c] = static_cast<Color>(i);
         }
 
-        return backtrack([&](Color c) { return valid_color_converter[c]; });
+        convert_inplace_code_and_frequency_map(code, code_frequency_map, reverse_color_map);
+        for (auto& [old_guess_feedback, data] : history) {
+            auto& [old_guess, old_guess_frequency_map] = data;
+            convert_inplace_code_and_frequency_map(old_guess, old_guess_frequency_map, reverse_color_map);
+        }
+    }
+
+    inline void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const Colors& reverse_color_map) {
+        // This is faster than setting all colors in code to false since the values are compacted in a bitset
+        std::ranges::fill(code_frequency_map, FrequencyMap::value_type());
+
+        for (Color& color : code) {
+            color = reverse_color_map[color];
+            code_frequency_map[color] = true;
+        }
     }
 };
 
