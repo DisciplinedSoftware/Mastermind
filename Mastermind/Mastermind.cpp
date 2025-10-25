@@ -90,7 +90,7 @@ public:
         return map[index / bitset_size][index % bitset_size];
     }
 
-    unsigned int compare_and_count(const FrequencyMap& other) const {
+    inline unsigned int compare_and_count(const FrequencyMap& other) const {
         unsigned int count = 0;
         assert(map.size() == other.map.size());
         for (size_t i = 0; i < map.size(); i += bitset_size) {
@@ -99,8 +99,8 @@ public:
         return count;
     }
 
-    auto begin() { return map.begin(); }
-    auto end() { return map.end(); }
+    inline auto begin() { return map.begin(); }
+    inline auto end() { return map.end(); }
 };
 
 
@@ -413,10 +413,12 @@ int main() {
         for (auto j : std::views::iota(0u, count)) {
             const Code secret = generate_secret(pegs, colors, 42 + j);    // Pseudo-random secret
 
+            //unsigned long nb_guess = 0;
             Code guess;
             Timer timer;
             CodeBreakerSolver code_breaker(pegs, colors);
             while (code_breaker.can_continue()) {
+                //++nb_guess;
                 guess = code_breaker.next_guess();
                 Feedback feedback = feedback_calculator.get_feedback(guess, secret);
                 if (feedback.black() == pegs) {
@@ -430,6 +432,9 @@ int main() {
                 std::cout << "Error for secret: " << secret << std::endl;
                 return 0;
             }
+            //if (i == 0) {
+            //    std::cout << nb_guess << '\n';
+            //}
         }
     }
 
