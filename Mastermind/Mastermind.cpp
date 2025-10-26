@@ -95,7 +95,6 @@ public:
     //    return std::ranges::fold_left(std::views::zip(map, other.map),
     //        0u,
     //        [](unsigned int acc, const auto& pair) {
-    //            const auto [a, b] = pair;
     //            return acc + std::popcount((std::get<0>(pair) & std::get<1>(pair)).to_ulong());
     //        });
     //}
