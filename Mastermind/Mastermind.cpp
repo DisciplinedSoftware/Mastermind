@@ -245,7 +245,7 @@ class CodeBreakerSolver {
 
     const unsigned int pegs;
     unsigned int colors;
-    std::map<Feedback, History, std::greater<Feedback>> history;
+    std::map<Feedback, History, std::greater<>> history;
     FrequencyMap code_frequency_map;
     Code code;
     size_t position;
