@@ -122,17 +122,6 @@ bool operator>(const Feedback& fb_a, const Feedback& fb_b) {
 
 using History = std::tuple<Code, FrequencyMap>;
 
-// Add above CodeBreakerSolver
-struct HistoryFeedbackOrder {
-    bool operator()(const Feedback& fb_a, const Feedback& fb_b) const {
-        return fb_a > fb_b;
-    }
-};
-
-template<std::integral Ta, std::integral Tb>
-Ta ceil_to_multiple_of(Ta a, Tb b) {
-    return static_cast<Ta>(std::ceil(static_cast<long double>(a)/ static_cast<long double>(a)) * b);
-}
 
 
 // --- CodeBreakerSolver class ---
