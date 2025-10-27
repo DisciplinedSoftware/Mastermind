@@ -32,85 +32,16 @@
 
 
 
-
-template <typename T, std::size_t Alignment = 32>
-struct aligned_allocator {
-    using value_type = T;
-    using pointer = T*;
-    using const_pointer = const T*;
-    using size_type = std::size_t;
-    using difference_type = std::ptrdiff_t;
-
-    template <class U> struct rebind { using other = aligned_allocator<U, Alignment>; };
-
-    aligned_allocator() noexcept {}
-
-    template <class U>
-    aligned_allocator(const aligned_allocator<U, Alignment>&) noexcept {}
-
-    T* allocate(std::size_t n) {
-        void* ptr = nullptr;
-        ptr = _aligned_malloc(n * sizeof(T), Alignment);
-        if (!ptr) throw std::bad_alloc();
-        return static_cast<T*>(ptr);
-    }
-
-    void deallocate(T* p, std::size_t) noexcept {
-        _aligned_free(p);
-    }
-};
-
-template <typename T, typename U, std::size_t Alignment>
-bool operator==(const aligned_allocator<T, Alignment>&, const aligned_allocator<U, Alignment>&) { return true; }
-template <typename T, typename U, std::size_t Alignment>
-bool operator!=(const aligned_allocator<T, Alignment>&, const aligned_allocator<U, Alignment>&) { return false; }
-
 using Color = std::uint8_t; // Color represented as a single byte
 using Colors = std::vector<Color>;
-using Code = std::vector<Color, aligned_allocator<Color, 32>>;
+using Code = std::vector<Color>;
 
-//using FrequencyMap = std::vector<bool>;
-
-class FrequencyMap {
-    static constexpr size_t bitset_size = 32;
-    std::vector<std::bitset<bitset_size>> map;
-public:
-    using value_type = decltype(map)::value_type;
-    using reference = decltype(map)::value_type::reference;
-
+static constexpr size_t bitset_size = 32;
+using FrequencyMap = std::bitset<bitset_size>;
+inline unsigned int compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs) {
     static_assert(sizeof(unsigned long) <= bitset_size / 8, "Unsigned long cannot hold bitset size, change to a larger type");
-
-    FrequencyMap(size_t count) : map(count / bitset_size + 1){}
-    FrequencyMap(size_t count, const value_type& value) : map(count / bitset_size + 1, value) {}
-
-    inline bool operator[](size_t index) const {
-        return map[index / bitset_size][index % bitset_size];
-    }
-
-    inline reference operator[](size_t index) {
-        return map[index / bitset_size][index % bitset_size];
-    }
-
-    //inline unsigned int compare_and_count(const FrequencyMap& other) const {
-    //    return std::ranges::fold_left(std::views::zip(map, other.map),
-    //        0u,
-    //        [](unsigned int acc, const auto& pair) {
-    //            return acc + std::popcount((std::get<0>(pair) & std::get<1>(pair)).to_ulong());
-    //        });
-    //}
-
-    inline unsigned int compare_and_count(const FrequencyMap& other) const {
-        unsigned int count = 0;
-        assert(map.size() == other.map.size());
-        for (size_t i = 0; i < map.size(); i += bitset_size) {
-            count += std::popcount((map[i] & other.map[i]).to_ulong());
-        }
-        return count;
-    }
-
-    inline auto begin() { return map.begin(); }
-    inline auto end() { return map.end(); }
-};
+    return std::popcount((lhs & rhs).to_ulong());
+}
 
 
 // Feedback: encapsulates black and white peg counts
@@ -132,34 +63,6 @@ std::ostream& operator<<(std::ostream& stream, const Code& code) {
 }
 
 
-static inline std::uint32_t compare_codes(const std::uint8_t* code_data, const std::uint8_t* old_guess_data) {
-    // Load 32 bytes from each array
-    __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(code_data));
-    __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(old_guess_data));
-    // Compare for equality
-    __m256i cmp = _mm256_cmpeq_epi8(va, vb);
-    // Create a 32-bit mask: each bit is 1 if corresponding bytes are equal
-    return _mm256_movemask_epi8(cmp);
-}
-
-//static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-//    constexpr size_t increment = 32 / sizeof(Code::value_type);
-//    assert(code.size() == old_guess.size());
-//    unsigned int sum = 0;
-//    size_t i = 0;
-//    for (; i + increment < position; i += increment) {
-//        const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-//        // Count the number of equal elements
-//        sum += std::popcount(mask);
-//    }
-//
-//    const std::uint32_t mask = compare_codes(code.data() + i, old_guess.data() + i);
-//    // Create a mask for the first n bytes
-//    const std::uint32_t user_mask = (1u << (position - i + 1)) - 1;
-//    // Only count matches in masked positions
-//    return sum + std::popcount(mask & user_mask);
-//}
-
 static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
     unsigned int black = 0;
     for (size_t i = 0; i <= position; ++i) {
@@ -170,17 +73,11 @@ static inline unsigned int count_black_pegs(const Code& code, const Code& old_gu
     return black;
 }
 
-//static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-//    return static_cast<unsigned int>(std::ranges::count_if(
-//        std::views::iota(size_t{ 0 }, position + 1),
-//        [&](size_t i) { return code[i] == old_guess[i]; }
-//    ));
-//}
 
 static inline unsigned int count_white_pegs(const FrequencyMap& code_frequency_map,
                                             const FrequencyMap& old_guess_frequency_map,
                                             unsigned int black) {
-    const unsigned int white = code_frequency_map.compare_and_count(old_guess_frequency_map);
+    const unsigned int white = compare_and_count(code_frequency_map, old_guess_frequency_map);
     return white - black;
 }
 
@@ -200,8 +97,10 @@ public:
     }
 
     Feedback get_feedback(const Code& guess, const Code& secret) {
-        std::ranges::fill(guess_frequency_map, FrequencyMap::value_type());
-        std::ranges::fill(secret_frequency_map, FrequencyMap::value_type());
+        //guess_frequency_map ^= guess_frequency_map;
+        //secret_frequency_map ^= secret_frequency_map;
+        guess_frequency_map = FrequencyMap();
+        secret_frequency_map = FrequencyMap();
 
         for (size_t i = 0; i < pegs; ++i) {
             guess_frequency_map[guess[i]] = true;
@@ -260,9 +159,7 @@ public:
     CodeBreakerSolver(unsigned int pegs, unsigned int colors)
         : pegs(pegs)
         , colors(colors)
-        , code_frequency_map(colors, decltype(code_frequency_map)::value_type())
         , code(pegs, 0)
-        //, code(ceil_to_multiple_of(pegs, 32u / sizeof(Color)), 0)
         , position(0)
         , last_position(pegs - 1)
         , all_colors_known_mode(false)
@@ -320,6 +217,7 @@ private:
     inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
         return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<unsigned int>{});
     }
+
 
     std::generator<NewValue> backtrack() {
         while (true) {
@@ -416,7 +314,8 @@ private:
 
     inline void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const Colors& reverse_color_map) {
         // This is faster than setting all colors in code to false since the values are compacted in a bitset
-        std::ranges::fill(code_frequency_map, FrequencyMap::value_type());
+        //code_frequency_map ^= code_frequency_map;
+        code_frequency_map = FrequencyMap();
 
         for (Color& color : code) {
             color = reverse_color_map[color];
