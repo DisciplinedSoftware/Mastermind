@@ -96,7 +96,7 @@ public:
         secret_frequency_map.reset();
 
         for (size_t i = 0; i < pegs; ++i) {
-            secret_frequency_map.set(secret[i]);
+            secret_frequency_map.flip(secret[i]);
         }
     }
 
@@ -160,7 +160,7 @@ public:
             for (size_t i = 0; i < pegs; ++i) {
                 const Color converted_color = color_map[code[i]];
                 converted_code[i] = converted_color;
-                converted_code_frequency_map.set(converted_color);
+                converted_code_frequency_map.flip(converted_color);
             }
 
             return { converted_code, converted_code_frequency_map };
@@ -223,11 +223,11 @@ private:
                     break;
                 }
 
-                code_frequency_map.reset(code[--position]);
+                code_frequency_map.flip(code[--position]);
             }
             else {
                 if (!code_frequency_map[color]) {
-                    code_frequency_map.set(color);
+                    code_frequency_map.flip(color);
 
                     if (position == last_position) {
                         if (std::ranges::all_of(history, [&](const auto& h) {
@@ -239,7 +239,7 @@ private:
                             co_yield{};
                         }
 
-                        code_frequency_map.reset(color);
+                        code_frequency_map.flip(color);
                     }
                     else {
                         // Partial code pruning
@@ -253,7 +253,7 @@ private:
                             continue;
                         }
                         else {
-                            code_frequency_map.reset(color);
+                            code_frequency_map.flip(color);
                         }
                     }
                 }
@@ -270,7 +270,7 @@ private:
         colors = pegs;
 
         // Free last color
-        code_frequency_map.reset(code[position]);
+        code_frequency_map.flip(code[position]);
         return backtrack();
     }
 
@@ -311,7 +311,7 @@ private:
 
         for (Color& color : code) {
             color = reverse_color_map[color];
-            code_frequency_map.set(color);
+            code_frequency_map.flip(color);
         }
     }
 };
