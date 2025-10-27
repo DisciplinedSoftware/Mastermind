@@ -85,30 +85,28 @@ static inline unsigned int count_white_pegs(const FrequencyMap& code_frequency_m
 // FeedbackCalculator: encapsulates feedback logic and reuses count vectors
 class FeedbackCalculator {
     unsigned int pegs;
-    unsigned int colors;
-    FrequencyMap guess_frequency_map;
     FrequencyMap secret_frequency_map;
 public:
-    FeedbackCalculator(unsigned int pegs, unsigned int colors)
-        : pegs(pegs)
-        , colors(colors)
-        , guess_frequency_map(colors)
-        , secret_frequency_map(colors) {
+    FeedbackCalculator(unsigned int pegs)
+        : pegs(pegs) {
     }
 
-    Feedback get_feedback(const Code& guess, const Code& secret) {
-        guess_frequency_map ^= guess_frequency_map;
-        secret_frequency_map ^= secret_frequency_map;
+    void set_secret(const Code secret) {
+        // Reset secret frequency map and compute it
+        secret_frequency_map.reset();
 
         for (size_t i = 0; i < pegs; ++i) {
-            guess_frequency_map[guess[i]] = true;
             secret_frequency_map[secret[i]] = true;
         }
+    }
 
+    Feedback get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map) {
         const unsigned int black = count_black_pegs(guess, secret, pegs - 1);
         const unsigned int white = count_white_pegs(guess_frequency_map, secret_frequency_map, black);
         return { black, white };
     }
+
+
 };
 
 bool operator>(const Feedback& fb_a, const Feedback& fb_b) {
@@ -133,11 +131,11 @@ class CodeBreakerSolver {
     std::map<Feedback, History, std::greater<>> history;
     FrequencyMap code_frequency_map;
     Code code;
+    FrequencyMap converted_code_frequency_map;
+    Code converted_code;
     size_t position;
     const size_t last_position;
     bool all_colors_known_mode;
-    std::vector<Color> valid_color_converter;
-    std::function<Code(const Code&)> convert_code_color;
     std::vector<Color> color_map;
     std::generator<NewValue> code_gen;
     decltype(code_gen.begin()) code_it;
@@ -147,18 +145,29 @@ public:
         : pegs(pegs)
         , colors(colors)
         , code(pegs, 0)
+        , converted_code(pegs, 0)
         , position(0)
         , last_position(pegs - 1)
         , all_colors_known_mode(false)
-        , valid_color_converter(colors + 1)
         , color_map(colors)
-        , convert_code_color([this](const Code& code) { return code; })
         , code_gen(backtrack())
         , code_it(code_gen.begin()) {
     }
 
-    Code next_guess() {
-        return convert_code_color(code);
+    std::tuple<const Code&, const FrequencyMap&> next_guess() {
+        if (all_colors_known_mode) {
+            converted_code_frequency_map.reset();
+            for (size_t i = 0; i < pegs; ++i) {
+                const Color converted_color = color_map[code[i]];
+                converted_code[i] = converted_color;
+                converted_code_frequency_map.set(converted_color);
+            }
+
+            return { converted_code, converted_code_frequency_map };
+        }
+        else {
+            return { code, code_frequency_map };
+        }
     }
 
     void apply_feedback(const Feedback& feedback) {
@@ -259,9 +268,6 @@ private:
         convert_code_and_history();
 
         colors = pegs;
-        convert_code_color = [this](const Code& code) { return code
-            | std::views::transform([this](Color color) { return color_map[color]; })
-            | std::ranges::to<Code>(); };
 
         // Free last color
         code_frequency_map[code[position]] = false;
@@ -301,7 +307,7 @@ private:
 
     inline void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const Colors& reverse_color_map) {
         // This is faster than setting all colors in code to false since the values are compacted in a bitset
-        code_frequency_map ^= code_frequency_map;
+        code_frequency_map.reset();
 
         for (Color& color : code) {
             color = reverse_color_map[color];
@@ -338,7 +344,7 @@ public:
 int main() {
     const auto pegs = 5;
     const auto colors = 8;
-    FeedbackCalculator feedback_calculator(pegs, colors);
+    FeedbackCalculator feedback_calculator(pegs);
 
     constexpr unsigned int nb_tries = 100;
     constexpr unsigned int count = 200;
@@ -348,21 +354,23 @@ int main() {
             const Code secret = generate_secret(pegs, colors, 42 + j);    // Pseudo-random secret
 
             //unsigned long nb_guess = 0;
-            Code guess;
+            Code final_guess;
             Timer timer;
             CodeBreakerSolver code_breaker(pegs, colors);
+            feedback_calculator.set_secret(secret);
             while (code_breaker.can_continue()) {
                 //++nb_guess;
-                guess = code_breaker.next_guess();
-                Feedback feedback = feedback_calculator.get_feedback(guess, secret);
+                const auto& [guess, guess_frequency_map] = code_breaker.next_guess();
+                Feedback feedback = feedback_calculator.get_feedback(guess, secret, guess_frequency_map);
                 if (feedback.black() == pegs) {
+                    final_guess = guess;
                     break;
                 }
                 code_breaker.apply_feedback(feedback);
             }
             const auto elapsed_time = timer.elapsed_seconds();
             times[i][j] = elapsed_time;
-            if ((guess | std::views::take(pegs) | std::ranges::to<Code>()) != secret) {
+            if ((final_guess | std::views::take(pegs) | std::ranges::to<Code>()) != secret) {
                 std::cout << "Error for secret: " << secret << std::endl;
                 return 0;
             }
@@ -387,8 +395,6 @@ int main() {
         << "Total: " << total << ' '
         << "Min: " << min << ' '
         << "Max: " << max << '\n';
-
-    std::cout << sizeof(unsigned long) << " >= " << (bitset_size / 8) << std::endl;
 
     return 0;
 }
