@@ -97,10 +97,8 @@ public:
     }
 
     Feedback get_feedback(const Code& guess, const Code& secret) {
-        //guess_frequency_map ^= guess_frequency_map;
-        //secret_frequency_map ^= secret_frequency_map;
-        guess_frequency_map = FrequencyMap();
-        secret_frequency_map = FrequencyMap();
+        guess_frequency_map ^= guess_frequency_map;
+        secret_frequency_map ^= secret_frequency_map;
 
         for (size_t i = 0; i < pegs; ++i) {
             guess_frequency_map[guess[i]] = true;
@@ -314,8 +312,7 @@ private:
 
     inline void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const Colors& reverse_color_map) {
         // This is faster than setting all colors in code to false since the values are compacted in a bitset
-        //code_frequency_map ^= code_frequency_map;
-        code_frequency_map = FrequencyMap();
+        code_frequency_map ^= code_frequency_map;
 
         for (Color& color : code) {
             color = reverse_color_map[color];
