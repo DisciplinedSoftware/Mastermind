@@ -96,7 +96,7 @@ public:
         secret_frequency_map.reset();
 
         for (size_t i = 0; i < pegs; ++i) {
-            secret_frequency_map[secret[i]] = true;
+            secret_frequency_map.set(secret[i]);
         }
     }
 
@@ -223,11 +223,11 @@ private:
                     break;
                 }
 
-                code_frequency_map[code[--position]] = false;
+                code_frequency_map.reset(code[--position]);
             }
             else {
                 if (!code_frequency_map[color]) {
-                    code_frequency_map[color] = true;
+                    code_frequency_map.set(color);
 
                     if (position == last_position) {
                         if (std::ranges::all_of(history, [&](const auto& h) {
@@ -239,7 +239,7 @@ private:
                             co_yield{};
                         }
 
-                        code_frequency_map[color] = false;
+                        code_frequency_map.reset(color);
                     }
                     else {
                         // Partial code pruning
@@ -253,7 +253,7 @@ private:
                             continue;
                         }
                         else {
-                            code_frequency_map[color] = false;
+                            code_frequency_map.reset(color);
                         }
                     }
                 }
@@ -270,7 +270,7 @@ private:
         colors = pegs;
 
         // Free last color
-        code_frequency_map[code[position]] = false;
+        code_frequency_map.reset(code[position]);
         return backtrack();
     }
 
@@ -311,7 +311,7 @@ private:
 
         for (Color& color : code) {
             color = reverse_color_map[color];
-            code_frequency_map[color] = true;
+            code_frequency_map.set(color);
         }
     }
 };
