@@ -36,11 +36,11 @@ using Color = std::uint8_t; // Color represented as a single byte
 using Colors = std::vector<Color>;
 using Code = std::vector<Color>;
 
-static constexpr size_t bitset_size = 64;
+static constexpr size_t bitset_size = 32;
 using FrequencyMap = std::bitset<bitset_size>;
 static inline unsigned int compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs) {
-    static_assert(sizeof(unsigned long long) >= (bitset_size / 8), "Unsigned long cannot hold bitset size, change to a larger type");
-    return std::popcount((lhs & rhs).to_ullong());
+    static_assert(sizeof(unsigned long) >= (bitset_size / 8), "Unsigned long cannot hold bitset size, change to a larger type");
+    return std::popcount((lhs & rhs).to_ulong());
 }
 
 
