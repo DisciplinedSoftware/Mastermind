@@ -91,7 +91,7 @@ public:
         : pegs(pegs) {
     }
 
-    void set_secret(const Code secret) {
+    void set_secret(const Code& secret) {
         // Reset secret frequency map and compute it
         secret_frequency_map.reset();
 
