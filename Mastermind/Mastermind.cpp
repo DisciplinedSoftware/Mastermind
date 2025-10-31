@@ -226,7 +226,7 @@ private:
                 code_frequency_map.flip(code[--position]);
             }
             else {
-                if (!code_frequency_map[color]) {
+                if (!code_frequency_map.test(color)) {
                     code_frequency_map.flip(color);
 
                     if (position == last_position) {
