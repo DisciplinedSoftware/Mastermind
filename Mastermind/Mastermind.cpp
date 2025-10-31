@@ -118,7 +118,7 @@ bool operator>(const Feedback& fb_a, const Feedback& fb_b) {
 }
 
 
-using History = std::tuple<Code, FrequencyMap, std::vector<unsigned int>, std::vector<unsigned int>>;
+using History = std::tuple<Code, FrequencyMap>;
 
 
 
@@ -171,9 +171,7 @@ public:
     }
 
     void apply_feedback(const Feedback& feedback) {
-        history.emplace(feedback, History{ code, code_frequency_map,
-            std::views::iota(1u, pegs + 1) | std::ranges::to<std::vector>(),
-            std::views::repeat(0u, pegs + 1) | std::ranges::to<std::vector>() });
+        history.emplace(feedback, History{ code, code_frequency_map });
 
         // Check if we should switch to permutation mode
         if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
@@ -222,7 +220,6 @@ private:
             const Color color = code[position];
             if (static_cast<unsigned int>(color) >= colors) {
                 if (position == 0u) {
-                    // No more code to try
                     break;
                 }
 
@@ -233,99 +230,32 @@ private:
                     code_frequency_map.flip(color);
 
                     if (position == last_position) {
-                        bool all_of = true;
-                        for (auto& h : history) {
-                            auto& [old_guess_feedback, data] = h;
-                            auto& [old_guess, old_guess_frequency_map, current_black_pegs_count, current_white_pegs_count] = data;
+                        if (std::ranges::all_of(history, [&](const auto& h) {
+                            const auto& [old_guess_feedback, data] = h;
+                            const auto& [old_guess, old_guess_frequency_map] = data;
+                            return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
+                            })) {
 
-                            bool is_black = false;
-                            const auto previous_black_pegs_count = (position == 0) ? 0 : (current_black_pegs_count[position - 1]);
-                            if (code[position] == old_guess[position]) {
-                                current_black_pegs_count[position] = previous_black_pegs_count + 1;
-                                is_black = true;
-                            }
-                            else {
-                                current_black_pegs_count[position] = previous_black_pegs_count;
-                            }
-
-                            //const auto computed_current_black_pegs_count = count_black_pegs(code, old_guess, position);
-                            //assert(current_black_pegs_count[position] == computed_current_black_pegs_count);
-
-                            if (!(current_black_pegs_count[position] == old_guess_feedback.black())) {
-                                all_of = false;
-                                break;
-                            }
-
-                            const auto previous_white_pegs_count = (position == 0) ? 0 : (current_white_pegs_count[position - 1]);
-                            if (!is_black && old_guess_frequency_map[code[position]]) {
-                                current_white_pegs_count[position] = previous_white_pegs_count + 1;
-                            }
-                            else {
-                                current_white_pegs_count[position] = previous_white_pegs_count;
-                            }
-
-                            //const auto computed_current_white_pegs_count = count_white_pegs(code_frequency_map, old_guess_frequency_map, current_black_pegs_count[position]);
-                            //assert(current_white_pegs_count[position] == computed_current_white_pegs_count);
-
-                            if (!(current_white_pegs_count[position] == old_guess_feedback.white())) {
-                                all_of = false;
-                                break;
-                            }
-                        }
-
-                        if (all_of) {
                             co_yield{};
                         }
+
+                        code_frequency_map.flip(color);
                     }
                     else {
                         // Partial code pruning
-                        bool all_of = true;
-                        for (auto& h : history) {
-                            auto& [old_guess_feedback, data] = h;
-                            auto& [old_guess, old_guess_frequency_map, current_black_pegs_count, current_white_pegs_count] = data;
+                        if (std::ranges::all_of(history, [&](const auto& h) {
+                            const auto& [old_guess_feedback, data] = h;
+                            const auto& [old_guess, old_guess_frequency_map] = data;
+                            return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
 
-                            bool is_black = false;
-                            const auto previous_black_pegs_count = (position == 0) ? 0 : (current_black_pegs_count[position - 1]);
-                            if (code[position] == old_guess[position]) {
-                                current_black_pegs_count[position] = previous_black_pegs_count + 1;
-                                is_black = true;
-                            }
-                            else {
-                                current_black_pegs_count[position] = previous_black_pegs_count;
-                            }
-
-                            //const auto computed_current_black_pegs_count = count_black_pegs(code, old_guess, position);
-                            //assert(current_black_pegs_count[position] == computed_current_black_pegs_count);
-
-                            if (!(current_black_pegs_count[position] <= old_guess_feedback.black())) {
-                                all_of = false;
-                                break;
-                            }
-
-                            const auto previous_white_pegs_count = (position == 0) ? 0 : (current_white_pegs_count[position - 1]);
-                            if (!is_black && old_guess_frequency_map[code[position]]) {
-                                current_white_pegs_count[position] = previous_white_pegs_count + 1;
-                            }
-                            else {
-                                current_white_pegs_count[position] = previous_white_pegs_count;
-                            }
-
-                            //const auto computed_current_white_pegs_count = count_white_pegs(code_frequency_map, old_guess_frequency_map, current_black_pegs_count[position]);
-                            //assert(current_white_pegs_count[position] == computed_current_white_pegs_count);
-
-                            if (!(current_white_pegs_count[position] <= old_guess_feedback.white())) {
-                                all_of = false;
-                                break;
-                            }
-                        }
-
-                        if (all_of) {
+                            })) {
                             code[++position] = 0;
                             continue;
                         }
+                        else {
+                            code_frequency_map.flip(color);
+                        }
                     }
-
-                    code_frequency_map.flip(color);
                 }
             }
 
@@ -341,7 +271,6 @@ private:
 
         // Free last color
         code_frequency_map.flip(code[position]);
-
         return backtrack();
     }
 
@@ -371,7 +300,7 @@ private:
 
         convert_inplace_code_and_frequency_map(code, code_frequency_map, reverse_color_map);
         for (auto& [old_guess_feedback, data] : history) {
-            auto& [old_guess, old_guess_frequency_map, current_black_pegs_count, current_white_pegs_count] = data;
+            auto& [old_guess, old_guess_frequency_map] = data;
             convert_inplace_code_and_frequency_map(old_guess, old_guess_frequency_map, reverse_color_map);
         }
     }
