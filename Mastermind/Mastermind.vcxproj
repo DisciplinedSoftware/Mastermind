@@ -131,7 +131,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Code.cpp" />
     <ClCompile Include="Mastermind.cpp" />
+    <ClCompile Include="NoDuplicateSolver.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Code.h" />
+    <ClInclude Include="Feedback.h" />
+    <ClInclude Include="NoDuplicateSolver.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

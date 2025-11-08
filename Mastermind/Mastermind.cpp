@@ -1,330 +1,28 @@
 // Mastermind.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
-#include <iostream>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <random>
 #include <chrono>
-#include <coroutine>
-#include <optional>
-#include <generator>
-#include <memory>
-#include <ranges>
-#include <limits>
-#include <functional>
-#include <unordered_map>
-#include <unordered_set>
-#include <cmath>
+#include <iostream>
 #include <numeric>
-#include <mdspan>
-#include <set>
-#include <stack>
-#include <iomanip>
-#include <bit>
-#include <cassert>
-#include <concepts>
-#include <cstdlib>
-#include <bitset>
-#include <map>
-#include <immintrin.h>
+#include <random>
+#include <ranges>
+
+#include "Code.h"
+#include "Feedback.h"
+#include "NoDuplicateSolver.h"
 
 
 
-using Color = std::uint8_t; // Color represented as a single byte
-using Colors = std::vector<Color>;
-using Code = std::vector<Color>;
-
-static constexpr size_t bitset_size = 32;
-using FrequencyMap = std::bitset<bitset_size>;
-static inline unsigned int compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs) {
-    static_assert(sizeof(unsigned long) >= (bitset_size / 8), "Unsigned long cannot hold bitset size, change to a larger type");
-    return std::popcount((lhs & rhs).to_ulong());
-}
 
 
-// Feedback: encapsulates black and white peg counts
-class Feedback {
-    unsigned int black_;
-    unsigned int white_;
-public:
-    Feedback(unsigned int black, unsigned int white) : black_(black), white_(white) {}
-    unsigned int black() const { return black_; }
-    unsigned int white() const { return white_; }
-    bool operator==(const Feedback& other) const = default;
-};
-
-
-// Print a code using letters
-std::ostream& operator<<(std::ostream& stream, const Code& code) {
-    for (auto peg : code | std::views::transform([](auto c) -> char { return c + 'A'; })) stream << peg;
-    return stream;
-}
-
-
-static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-    unsigned int black = 0;
-    for (size_t i = 0; i <= position; ++i) {
-        if (code[i] == old_guess[i]) {
-            ++black;
-        }
-    }
-    return black;
-}
-
-
-static inline unsigned int count_white_pegs(const FrequencyMap& code_frequency_map,
-                                            const FrequencyMap& old_guess_frequency_map,
-                                            unsigned int black) {
-    const unsigned int white = compare_and_count(code_frequency_map, old_guess_frequency_map);
-    return white - black;
-}
-
-
-// FeedbackCalculator: encapsulates feedback logic and reuses count vectors
-class FeedbackCalculator {
-    unsigned int pegs;
-    FrequencyMap secret_frequency_map;
-public:
-    FeedbackCalculator(unsigned int pegs)
-        : pegs(pegs) {
-    }
-
-    void set_secret(const Code& secret) {
-        // Reset secret frequency map and compute it
-        secret_frequency_map.reset();
-
-        for (size_t i = 0; i < pegs; ++i) {
-            secret_frequency_map.flip(secret[i]);
-        }
-    }
-
-    Feedback get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map) {
-        const unsigned int black = count_black_pegs(guess, secret, pegs - 1);
-        const unsigned int white = count_white_pegs(guess_frequency_map, secret_frequency_map, black);
-        return { black, white };
-    }
-
-
-};
-
-bool operator>(const Feedback& fb_a, const Feedback& fb_b) {
-    if (fb_a.black() != fb_b.black())
-        return fb_a.black() > fb_b.black();
-    if (fb_a.white() != fb_b.white())
-        return fb_a.white() > fb_b.white();
-    return false;
-}
-
-
-using History = std::tuple<Code, FrequencyMap>;
-
-
-
-// --- CodeBreakerSolver class ---
-class CodeBreakerSolver {
-    struct NewValue {};
-
-    const unsigned int pegs;
-    unsigned int colors;
-    std::map<Feedback, History, std::greater<>> history;
-    FrequencyMap code_frequency_map;
-    Code code;
-    FrequencyMap converted_code_frequency_map;
-    Code converted_code;
-    size_t position;
-    const size_t last_position;
-    bool all_colors_known_mode;
-    std::vector<Color> color_map;
-    std::generator<NewValue> code_gen;
-    decltype(code_gen.begin()) code_it;
-
-public:
-    CodeBreakerSolver(unsigned int pegs, unsigned int colors)
-        : pegs(pegs)
-        , colors(colors)
-        , code(pegs, 0)
-        , converted_code(pegs, 0)
-        , position(0)
-        , last_position(pegs - 1)
-        , all_colors_known_mode(false)
-        , color_map(colors)
-        , code_gen(backtrack())
-        , code_it(code_gen.begin()) {
-    }
-
-    std::tuple<const Code&, const FrequencyMap&> next_guess() {
-        if (all_colors_known_mode) {
-            converted_code_frequency_map.reset();
-            for (size_t i = 0; i < pegs; ++i) {
-                const Color converted_color = color_map[code[i]];
-                converted_code[i] = converted_color;
-                converted_code_frequency_map.flip(converted_color);
-            }
-
-            return { converted_code, converted_code_frequency_map };
-        }
-        else {
-            return { code, code_frequency_map };
-        }
-    }
-
-    void apply_feedback(const Feedback& feedback) {
-        history.emplace(feedback, History{ code, code_frequency_map });
-
-        // Check if we should switch to permutation mode
-        if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
-            all_colors_known_mode = true;
-            code_gen = backtrack_using_only_code_colors();
-            code_it = code_gen.begin();
-            return;
-        }
-
-        ++code_it;
-    }
-
-    bool can_continue() const {
-        return code_it != code_gen.end();
-    }
-
-private:
-    template<typename Pred>
-        requires std::predicate<Pred, unsigned int, unsigned int>
-    inline bool compare_feedback(const Code& old_guess,
-                                 const Feedback& old_guess_feedback,
-                                 const FrequencyMap& old_guess_frequency_map,
-                                 Pred pred) {
-        // Black pegs
-        const unsigned int black = count_black_pegs(code, old_guess, position);
-        if (!pred(black, old_guess_feedback.black())) {
-            return false;
-        }
-
-        // White pegs
-        const unsigned int white = count_white_pegs(code_frequency_map, old_guess_frequency_map, black);
-        return pred(white, old_guess_feedback.white());
-    }
-
-    inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
-        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::equal_to<unsigned int>{});
-    }
-
-    inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
-        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<unsigned int>{});
-    }
-
-
-    std::generator<NewValue> backtrack() {
-        while (true) {
-            const Color color = code[position];
-            if (static_cast<unsigned int>(color) >= colors) {
-                if (position == 0u) {
-                    break;
-                }
-
-                code_frequency_map.flip(code[--position]);
-            }
-            else {
-                if (!code_frequency_map.test(color)) {
-                    code_frequency_map.flip(color);
-
-                    if (position == last_position) {
-                        if (std::ranges::all_of(history, [&](const auto& h) {
-                            const auto& [old_guess_feedback, data] = h;
-                            const auto& [old_guess, old_guess_frequency_map] = data;
-                            return is_same_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
-                            })) {
-
-                            co_yield{};
-                        }
-
-                        code_frequency_map.flip(color);
-                    }
-                    else {
-                        // Partial code pruning
-                        if (std::ranges::all_of(history, [&](const auto& h) {
-                            const auto& [old_guess_feedback, data] = h;
-                            const auto& [old_guess, old_guess_frequency_map] = data;
-                            return is_similar_feedback(old_guess, old_guess_feedback, old_guess_frequency_map);
-
-                            })) {
-                            code[++position] = 0;
-                            continue;
-                        }
-                        else {
-                            code_frequency_map.flip(color);
-                        }
-                    }
-                }
-            }
-
-            ++code[position];
-        }
-    }
-
-    std::generator<NewValue> backtrack_using_only_code_colors() {
-        create_color_map();
-        convert_code_and_history();
-
-        colors = pegs;
-
-        // Free last color
-        code_frequency_map.flip(code[position]);
-        return backtrack();
-    }
-
-    void create_color_map() {
-        std::ranges::copy(code.begin(), code.begin() + pegs, color_map.begin());
-        std::ranges::sort(color_map.begin(), color_map.begin() + pegs);
-
-        Color c = 0;
-        size_t j = 0;
-        for (size_t i = pegs; i < colors; ++i) {
-            // Find next missing color
-            while (j < pegs && color_map[j] <= c) {
-                ++c;
-                ++j;
-            }
-
-            color_map[i] = c++;
-        }
-    }
-
-    void convert_code_and_history()
-    {
-        Colors reverse_color_map(colors, 0);
-        for (const auto [i, c] : std::views::enumerate(color_map)) {
-            reverse_color_map[c] = static_cast<Color>(i);
-        }
-
-        convert_inplace_code_and_frequency_map(code, code_frequency_map, reverse_color_map);
-        for (auto& [old_guess_feedback, data] : history) {
-            auto& [old_guess, old_guess_frequency_map] = data;
-            convert_inplace_code_and_frequency_map(old_guess, old_guess_frequency_map, reverse_color_map);
-        }
-    }
-
-    inline void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const Colors& reverse_color_map) {
-        // This is faster than setting all colors in code to false since the values are compacted in a bitset
-        code_frequency_map.reset();
-
-        for (Color& color : code) {
-            color = reverse_color_map[color];
-            code_frequency_map.flip(color);
-        }
-    }
-};
-
-
-Colors randomize_colors(unsigned int colors, unsigned int seed) {
+std::vector<Color> randomize_colors(unsigned int colors, unsigned int seed) {
     std::mt19937 rng(seed);
     auto color_chars = std::views::iota(0u, colors) | std::ranges::to<std::vector<Color>>();
     std::ranges::shuffle(color_chars, rng);
     return color_chars;
 }
 
-Code generate_secret(unsigned int pegs, unsigned int colors, unsigned int seed) {
+Code generate_secret_no_duplicate(unsigned int pegs, unsigned int colors, unsigned int seed) {
     auto color_chars = randomize_colors(colors, seed);
     return { color_chars.begin(), color_chars.begin() + pegs };
 }
@@ -341,60 +39,153 @@ public:
     }
 };
 
-int main() {
-    const auto pegs = 5;
-    const auto colors = 8;
-    FeedbackCalculator feedback_calculator(pegs);
 
-    constexpr unsigned int nb_tries = 100;
-    constexpr unsigned int count = 200;
-    std::array<std::array<std::chrono::microseconds, count>, nb_tries> times{};
-    for (auto i : std::views::iota(0u, nb_tries)) {
-        for (auto j : std::views::iota(0u, count)) {
-            const Code secret = generate_secret(pegs, colors, 42 + j);    // Pseudo-random secret
+class TimeStatistics {
+    std::vector<std::chrono::microseconds> mean_times;
+    std::chrono::microseconds total;
+    std::chrono::microseconds min;
+    std::chrono::microseconds max;
 
-            //unsigned long nb_guess = 0;
-            Code final_guess;
-            Timer timer;
-            CodeBreakerSolver code_breaker(pegs, colors);
-            feedback_calculator.set_secret(secret);
-            while (code_breaker.can_continue()) {
-                //++nb_guess;
-                const auto& [guess, guess_frequency_map] = code_breaker.next_guess();
-                Feedback feedback = feedback_calculator.get_feedback(guess, secret, guess_frequency_map);
-                if (feedback.black() == pegs) {
-                    final_guess = guess;
-                    break;
-                }
-                code_breaker.apply_feedback(feedback);
-            }
-            const auto elapsed_time = timer.elapsed_seconds();
-            times[i][j] = elapsed_time;
-            if ((final_guess | std::views::take(pegs) | std::ranges::to<Code>()) != secret) {
-                std::cout << "Error for secret: " << secret << std::endl;
-                return 0;
-            }
-            //if (i == 0) {
-            //    std::cout << nb_guess << '\n';
-            //}
-        }
+public:
+    TimeStatistics(std::vector<std::chrono::microseconds>&& mean_times,
+        std::chrono::microseconds total,
+        std::chrono::microseconds min,
+        std::chrono::microseconds max)
+    : mean_times(mean_times), total(total), min(min), max(max)
+    {}
+
+    const std::vector<std::chrono::microseconds>& get_mean_times() const { return mean_times; }
+    std::chrono::microseconds get_total() const { return total; }
+    std::chrono::microseconds get_min() const { return min; }
+    std::chrono::microseconds get_max() const { return max; }
+};
+
+std::ostream& operator<<(std::ostream& stream, const TimeStatistics& statistics) {
+    for (auto time : statistics.get_mean_times()) {
+        stream << std::setprecision(std::numeric_limits<double>::digits10) << time.count() << '\n';
     }
+
+    stream << std::setprecision(std::numeric_limits<double>::digits10)
+        << "Time: "
+        << "Total: " << statistics.get_total() << ' '
+        << "Min: " << statistics.get_min() << ' '
+        << "Max: " << statistics.get_max();
+
+    return stream;
+}
+
+
+TimeStatistics compute_time_statistics(const std::vector<std::vector<std::chrono::microseconds>>& times)
+{
+    std::vector<std::chrono::microseconds> mean_times;
+    mean_times.reserve(times.size());
 
     auto total = std::chrono::microseconds::zero();
     auto min = std::chrono::microseconds::max();
     auto max = std::chrono::microseconds::min();
+
     for (const auto& t : times) {
         const auto current_run_time = std::accumulate(t.begin(), t.end(), std::chrono::microseconds::zero());
+        mean_times.emplace_back(current_run_time);
         total += current_run_time;
         min = std::min(min, current_run_time);
         max = std::max(max, current_run_time);
-        std::cout << std::setprecision(std::numeric_limits<double>::digits10) << current_run_time.count() << '\n';
     }
 
-    std::cout << std::setprecision(std::numeric_limits<double>::digits10)
-        << "Total: " << total << ' '
-        << "Min: " << min << ' '
-        << "Max: " << max << '\n';
+    return { std::move(mean_times), total, min, max };
+}
+
+
+class NbGuessStatistics {
+    unsigned int total;
+    double mean;
+public:
+    NbGuessStatistics(unsigned int total, double mean)
+        : total(total), mean(mean)
+    {}
+
+    unsigned int get_total() const { return total; }
+    double get_mean() const { return mean; }
+};
+
+std::ostream& operator<<(std::ostream& stream, const NbGuessStatistics& statistics) {
+    stream << std::setprecision(std::numeric_limits<double>::digits10)
+        << "Nb Guesses: "
+        << "Total: " << statistics.get_total() << ' '
+        << "Mean: " << statistics.get_mean();
+
+    return stream;
+}
+
+NbGuessStatistics compute_nb_guesses_statistics(const std::vector<unsigned int>& nb_guesses) {
+    const auto total = std::accumulate(nb_guesses.begin(), nb_guesses.end(), 0u);
+    const auto mean = static_cast<double>(total) / nb_guesses.size();
+    return { total, mean };
+}
+
+template<class Solver>
+inline std::tuple<Code, unsigned int> solve(unsigned int pegs, const Code& secret, unsigned int colors)
+{
+    typename Solver::FeedbackCalculator feedback_calculator(pegs, secret);
+
+    unsigned int nb_guesses = 0;
+    Code final_guess;
+    Solver code_breaker(pegs, colors);
+    while (code_breaker.can_continue()) {
+        ++nb_guesses;
+        const auto& [guess, guess_frequency_map] = code_breaker.next_guess();
+        Feedback feedback = feedback_calculator.get_feedback(guess, secret, guess_frequency_map);
+        if (feedback.black() == pegs) {
+            final_guess = guess;
+            break;
+        }
+        code_breaker.apply_feedback(feedback);
+    }
+
+    return { final_guess, nb_guesses };
+}
+
+int main() {
+    const auto pegs = 5;
+    const auto colors = 8;
+
+    constexpr unsigned int nb_tries = 100;
+    constexpr unsigned int count = 200;
+
+    std::vector<std::vector<std::chrono::microseconds>> all_times;
+    std::vector<unsigned int> all_nb_guesses;
+
+    all_times.reserve(count);
+    all_nb_guesses.reserve(count);
+
+    for (auto i : std::views::iota(0u, nb_tries)) {
+        all_times.emplace_back();
+        all_times.back().reserve(count);
+        for (auto j : std::views::iota(0u, count)) {
+            const Code secret = generate_secret_no_duplicate(pegs, colors, 42 + j);    // Pseudo-random secret
+
+            using Solver = no_duplicate::Solver;
+
+            Timer timer;
+            auto [final_guess, nb_guesses] = solve<Solver>(pegs, secret, colors);
+            const auto elapsed_time = timer.elapsed_seconds();
+
+            all_times.back().emplace_back(elapsed_time);
+            if ((final_guess | std::views::take(pegs) | std::ranges::to<Code>()) != secret) {
+                std::cout << "Error for secret: " << secret << std::endl;
+                return 0;
+            }
+            if (i == 0) {
+                all_nb_guesses.emplace_back(nb_guesses);
+            }
+        }
+    }
+
+    const auto time_statistics = compute_time_statistics(all_times);
+    const auto guesses_statistics = compute_nb_guesses_statistics(all_nb_guesses);
+
+    std::cout << time_statistics << '\n';
+    std::cout << guesses_statistics << '\n';
 
     return 0;
 }
