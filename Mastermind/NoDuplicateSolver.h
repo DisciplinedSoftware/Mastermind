@@ -15,6 +15,7 @@ namespace no_duplicate {
 
 static constexpr size_t bitset_size = 32;
 using FrequencyMap = std::bitset<bitset_size>;
+
 static inline unsigned int compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs) {
     static_assert(sizeof(unsigned long) >= (bitset_size / 8), "Unsigned long cannot hold bitset size, change to a larger type");
     return std::popcount((lhs & rhs).to_ulong());
@@ -64,7 +65,7 @@ class Solver {
 
     const unsigned int pegs;
     unsigned int colors;
-    std::map<Feedback, History, std::greater<>> history;
+    std::multimap<Feedback, History, std::greater<>> history;
     FrequencyMap code_frequency_map;
     Code code;
     FrequencyMap converted_code_frequency_map;
@@ -75,56 +76,20 @@ class Solver {
     std::vector<Color> color_map;
     std::generator<NewValue> code_gen;
     decltype(code_gen.begin()) code_it;
+    FeedbackCalculator feedback_calculator;
 
 public:
     using FeedbackCalculator = no_duplicate::FeedbackCalculator;
 
-    Solver(unsigned int pegs, unsigned int colors)
-        : pegs(pegs)
-        , colors(colors)
-        , code(pegs, 0)
-        , converted_code(pegs, 0)
-        , position(0)
-        , last_position(pegs - 1)
-        , all_colors_known_mode(false)
-        , color_map(colors)
-        , code_gen(backtrack())
-        , code_it(code_gen.begin()) {
-    }
+    Solver(unsigned int pegs, unsigned int colors);
 
-    std::tuple<const Code&, const FrequencyMap&> next_guess() {
-        if (all_colors_known_mode) {
-            converted_code_frequency_map.reset();
-            for (size_t i = 0; i < pegs; ++i) {
-                const Color converted_color = color_map[code[i]];
-                converted_code[i] = converted_color;
-                converted_code_frequency_map.flip(converted_color);
-            }
+    FeedbackCalculator& get_feedback_calculator();
 
-            return { converted_code, converted_code_frequency_map };
-        }
-        else {
-            return { code, code_frequency_map };
-        }
-    }
+    std::tuple<const Code&, const FrequencyMap&> next_guess();
 
-    void apply_feedback(const Feedback& feedback) {
-        history.emplace(feedback, History{ code, code_frequency_map });
+    void apply_feedback(const Feedback& feedback);
 
-        // Check if we should switch to permutation mode
-        if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
-            all_colors_known_mode = true;
-            code_gen = backtrack_using_only_code_colors();
-            code_it = code_gen.begin();
-            return;
-        }
-
-        ++code_it;
-    }
-
-    bool can_continue() const {
-        return code_it != code_gen.end();
-    }
+    bool can_continue() const;
 
 private:
     template<typename Pred>

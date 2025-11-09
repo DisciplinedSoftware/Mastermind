@@ -5,13 +5,11 @@
 
 namespace no_duplicate {
 
-no_duplicate::FeedbackCalculator::FeedbackCalculator(unsigned int pegs) : pegs(pegs)
-{
+FeedbackCalculator::FeedbackCalculator(unsigned int pegs)
+    : pegs(pegs)
+{}
 
-}
-
-void no_duplicate::FeedbackCalculator::set_secret(const Code& secret)
-{
+void FeedbackCalculator::set_secret(const Code& secret) {
     // Reset secret frequency map and compute it
     secret_frequency_map.reset();
 
@@ -20,20 +18,69 @@ void no_duplicate::FeedbackCalculator::set_secret(const Code& secret)
     }
 }
 
-Feedback no_duplicate::FeedbackCalculator::get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map)
-{
+Feedback FeedbackCalculator::get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map) {
     const unsigned int black = count_black_pegs(guess, secret, pegs - 1);
     const unsigned int white = count_white_pegs(guess_frequency_map, secret_frequency_map, black);
     return { black, white };
 }
 
-no_duplicate::FeedbackCalculator::FeedbackCalculator(unsigned int pegs, Code secret) : FeedbackCalculator(pegs)
-{
+FeedbackCalculator::FeedbackCalculator(unsigned int pegs, Code secret) : FeedbackCalculator(pegs) {
     set_secret(secret);
 }
 
-std::generator<no_duplicate::Solver::NewValue> Solver::backtrack()
-{
+Solver::Solver(unsigned int pegs, unsigned int colors)
+    : pegs(pegs)
+    , colors(colors)
+    , code(pegs, 0)
+    , converted_code(pegs, 0)
+    , position(0)
+    , last_position(pegs - 1)
+    , all_colors_known_mode(false)
+    , color_map(colors)
+    , code_gen(backtrack())
+    , code_it(code_gen.begin())
+    , feedback_calculator(pegs)
+{}
+
+FeedbackCalculator& Solver::get_feedback_calculator() {
+    return feedback_calculator;
+}
+
+std::tuple<const Code&, const FrequencyMap&> Solver::next_guess() {
+    if (all_colors_known_mode) {
+        converted_code_frequency_map.reset();
+        for (size_t i = 0; i < pegs; ++i) {
+            const Color converted_color = color_map[code[i]];
+            converted_code[i] = converted_color;
+            converted_code_frequency_map.flip(converted_color);
+        }
+
+        return { converted_code, converted_code_frequency_map };
+    }
+    else {
+        return { code, code_frequency_map };
+    }
+}
+
+void Solver::apply_feedback(const Feedback& feedback) {
+    history.emplace(feedback, History{ code, code_frequency_map });
+
+    // Check if we should switch to permutation mode
+    if (!all_colors_known_mode && feedback.black() + feedback.white() == pegs) {
+        all_colors_known_mode = true;
+        code_gen = backtrack_using_only_code_colors();
+        code_it = code_gen.begin();
+        return;
+    }
+
+    ++code_it;
+}
+
+bool Solver::can_continue() const {
+    return code_it != code_gen.end();
+}
+
+std::generator<Solver::NewValue> Solver::backtrack() {
     while (true) {
         const Color color = code[position];
         if (static_cast<unsigned int>(color) >= colors) {
@@ -81,8 +128,7 @@ std::generator<no_duplicate::Solver::NewValue> Solver::backtrack()
     }
 }
 
-std::generator<no_duplicate::Solver::NewValue> Solver::backtrack_using_only_code_colors()
-{
+std::generator<Solver::NewValue> Solver::backtrack_using_only_code_colors() {
     create_color_map();
     convert_code_and_history();
 
@@ -90,11 +136,11 @@ std::generator<no_duplicate::Solver::NewValue> Solver::backtrack_using_only_code
 
     // Free last color
     code_frequency_map.flip(code[position]);
+
     return backtrack();
 }
 
-void Solver::create_color_map()
-{
+void Solver::create_color_map() {
     std::ranges::copy(code.begin(), code.begin() + pegs, color_map.begin());
     std::ranges::sort(color_map.begin(), color_map.begin() + pegs);
 
@@ -111,8 +157,7 @@ void Solver::create_color_map()
     }
 }
 
-void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const std::vector<Color>& reverse_color_map)
-{
+void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const std::vector<Color>& reverse_color_map) {
     // This is faster than setting all colors in code to false since the values are compacted in a bitset
     code_frequency_map.reset();
 
@@ -122,8 +167,7 @@ void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequ
     }
 }
 
-void Solver::convert_code_and_history()
-{
+void Solver::convert_code_and_history() {
     std::vector<Color> reverse_color_map(colors, 0);
     for (const auto [i, c] : std::views::enumerate(color_map)) {
         reverse_color_map[c] = static_cast<Color>(i);
