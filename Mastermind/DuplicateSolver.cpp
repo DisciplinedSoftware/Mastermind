@@ -5,13 +5,13 @@
 
 namespace duplicate {
 
-FeedbackCalculator::FeedbackCalculator(unsigned int pegs, unsigned int colors)
+FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors)
     : pegs(pegs)
     , colors(colors)
     , secret_frequency_map(colors)
 {}
 
-FeedbackCalculator::FeedbackCalculator(unsigned int pegs, unsigned int colors, Code secret)
+FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, Code secret)
     : FeedbackCalculator(pegs, colors) {
     set_secret(secret);
 }
@@ -27,13 +27,13 @@ void FeedbackCalculator::set_secret(const Code& secret) {
 }
 
 Feedback FeedbackCalculator::get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map) {
-    const unsigned int black = count_black_pegs(guess, secret, pegs - 1);
-    const unsigned int white = count_white_pegs(guess_frequency_map, secret_frequency_map, colors, black);
+    const std::uint8_t black = count_black_pegs(guess, secret, pegs - 1);
+    const std::uint8_t white = count_white_pegs(guess_frequency_map, secret_frequency_map, colors, black);
     return { black, white };
 }
 
 
-Solver::Solver(unsigned int pegs, unsigned int colors)
+Solver::Solver(std::uint8_t pegs, std::uint8_t colors)
     : pegs(pegs)
     , colors(colors)
     , code(pegs, 0)
@@ -91,7 +91,7 @@ bool Solver::can_continue() const {
 std::generator<Solver::NewValue> Solver::backtrack() {
     while (true) {
         const Color color = code[position];
-        if (static_cast<unsigned int>(color) >= colors) {
+        if (color >= colors) {
             if (position == 0u) {
                 break;
             }
@@ -163,7 +163,7 @@ void Solver::create_color_map() {
     }
 }
 
-void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const std::vector<Color>& reverse_color_map, unsigned int nb_colors) {
+void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const std::vector<Color>& reverse_color_map, std::uint8_t nb_colors) {
     std::ranges::fill(code_frequency_map, 0);
 
     for (Color& color : code) {

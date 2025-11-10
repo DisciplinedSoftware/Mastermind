@@ -5,7 +5,7 @@
 
 namespace no_duplicate {
 
-FeedbackCalculator::FeedbackCalculator(unsigned int pegs)
+FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs)
     : pegs(pegs)
 {}
 
@@ -19,16 +19,16 @@ void FeedbackCalculator::set_secret(const Code& secret) {
 }
 
 Feedback FeedbackCalculator::get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map) {
-    const unsigned int black = count_black_pegs(guess, secret, pegs - 1);
-    const unsigned int white = count_white_pegs(guess_frequency_map, secret_frequency_map, black);
+    const std::uint8_t black = count_black_pegs(guess, secret, pegs - 1);
+    const std::uint8_t white = count_white_pegs(guess_frequency_map, secret_frequency_map, black);
     return { black, white };
 }
 
-FeedbackCalculator::FeedbackCalculator(unsigned int pegs, Code secret) : FeedbackCalculator(pegs) {
+FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, Code secret) : FeedbackCalculator(pegs) {
     set_secret(secret);
 }
 
-Solver::Solver(unsigned int pegs, unsigned int colors)
+Solver::Solver(std::uint8_t pegs, std::uint8_t colors)
     : pegs(pegs)
     , colors(colors)
     , code(pegs, 0)
@@ -83,7 +83,7 @@ bool Solver::can_continue() const {
 std::generator<Solver::NewValue> Solver::backtrack() {
     while (true) {
         const Color color = code[position];
-        if (static_cast<unsigned int>(color) >= colors) {
+        if (color >= colors) {
             if (position == 0u) {
                 break;
             }

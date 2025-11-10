@@ -16,7 +16,7 @@ namespace no_duplicate {
 static constexpr size_t bitset_size = 32;
 using FrequencyMap = std::bitset<bitset_size>;
 
-static inline unsigned int compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs) {
+static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs) {
     static_assert(sizeof(unsigned long) >= (bitset_size / 8), "Unsigned long cannot hold bitset size, change to a larger type");
     return std::popcount((lhs & rhs).to_ulong());
 }
@@ -25,8 +25,8 @@ using History = std::tuple<Code, FrequencyMap>;
 
 
 
-static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-    unsigned int black = 0;
+static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
+    std::uint8_t black = 0;
     for (size_t i = 0; i <= position; ++i) {
         if (code[i] == old_guess[i]) {
             ++black;
@@ -36,22 +36,22 @@ static inline unsigned int count_black_pegs(const Code& code, const Code& old_gu
 }
 
 
-static inline unsigned int count_white_pegs(const FrequencyMap& code_frequency_map,
+static inline std::uint8_t count_white_pegs(const FrequencyMap& code_frequency_map,
     const FrequencyMap& old_guess_frequency_map,
-    unsigned int black) {
-    const unsigned int white = compare_and_count(code_frequency_map, old_guess_frequency_map);
+    std::uint8_t black) {
+    const std::uint8_t white = compare_and_count(code_frequency_map, old_guess_frequency_map);
     return white - black;
 }
 
 
 // FeedbackCalculator: encapsulates feedback logic and reuses count vectors
 class FeedbackCalculator {
-    unsigned int pegs;
+    std::uint8_t pegs;
     FrequencyMap secret_frequency_map;
 public:
-    FeedbackCalculator(unsigned int pegs);
+    FeedbackCalculator(std::uint8_t pegs);
 
-    FeedbackCalculator(unsigned int pegs, Code secret);
+    FeedbackCalculator(std::uint8_t pegs, Code secret);
 
     void set_secret(const Code& secret);
 
@@ -63,8 +63,8 @@ public:
 class Solver {
     struct NewValue {};
 
-    const unsigned int pegs;
-    unsigned int colors;
+    const std::uint8_t pegs;
+    std::uint8_t colors;
     std::multimap<Feedback, History, std::greater<>> history;
     FrequencyMap code_frequency_map;
     Code code;
@@ -81,7 +81,7 @@ class Solver {
 public:
     using FeedbackCalculator = no_duplicate::FeedbackCalculator;
 
-    Solver(unsigned int pegs, unsigned int colors);
+    Solver(std::uint8_t pegs, std::uint8_t colors);
 
     FeedbackCalculator& get_feedback_calculator();
 
@@ -93,28 +93,28 @@ public:
 
 private:
     template<typename Pred>
-        requires std::predicate<Pred, unsigned int, unsigned int>
+        requires std::predicate<Pred, std::uint8_t, std::uint8_t>
     inline bool compare_feedback(const Code& old_guess,
         const Feedback& old_guess_feedback,
         const FrequencyMap& old_guess_frequency_map,
         Pred pred) {
         // Black pegs
-        const unsigned int black = count_black_pegs(code, old_guess, position);
+        const std::uint8_t black = count_black_pegs(code, old_guess, position);
         if (!pred(black, old_guess_feedback.black())) {
             return false;
         }
 
         // White pegs
-        const unsigned int white = count_white_pegs(code_frequency_map, old_guess_frequency_map, black);
+        const std::uint8_t white = count_white_pegs(code_frequency_map, old_guess_frequency_map, black);
         return pred(white, old_guess_feedback.white());
     }
 
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
-        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::equal_to<unsigned int>{});
+        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::equal_to<std::uint8_t>{});
     }
 
     inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
-        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<unsigned int>{});
+        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<std::uint8_t>{});
     }
 
 

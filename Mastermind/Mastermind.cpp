@@ -1,6 +1,7 @@
 // Mastermind.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+#include <cassert>
 #include <chrono>
 #include <iostream>
 #include <numeric>
@@ -124,8 +125,7 @@ NbGuessStatistics compute_nb_guesses_statistics(const std::vector<unsigned int>&
     return { total, mean };
 }
 
-template<class Solver>
-inline std::tuple<Code, unsigned int> solve(unsigned int pegs, const Code& secret, unsigned int colors)
+template<class Solver> inline std::tuple<Code, unsigned int> solve(std::uint8_t pegs, std::uint8_t colors, const Code& secret)
 {
     unsigned int nb_guesses = 0;
     Code final_guess;
@@ -147,8 +147,8 @@ inline std::tuple<Code, unsigned int> solve(unsigned int pegs, const Code& secre
 }
 
 int main() {
-    const auto pegs = 5;
-    const auto colors = 8;
+    const std::uint8_t pegs = 5;
+    const std::uint8_t colors = 8;
 
     constexpr unsigned int nb_tries = 100;
     constexpr unsigned int count = 200;
@@ -169,7 +169,7 @@ int main() {
             using Solver = duplicate::Solver;
 
             Timer timer;
-            auto [final_guess, nb_guesses] = solve<Solver>(pegs, secret, colors);
+            auto [final_guess, nb_guesses] = solve<Solver>(pegs, colors, secret);
             const auto elapsed_time = timer.elapsed_seconds();
 
             all_times.back().emplace_back(elapsed_time);

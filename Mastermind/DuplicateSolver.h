@@ -2,9 +2,8 @@
 
 #include <generator>
 #include <map>
-#include <numeric>
+#include <new>
 #include <tuple>
-#include <unordered_map>
 #include <vector>
 
 
@@ -14,11 +13,27 @@
 
 namespace duplicate {
 
-using FrequencyMap = std::vector<unsigned int>;
+class FrequencyMap {
+    alignas(std::hardware_destructive_interference_size) std::vector<std::uint8_t> frequencyMap;
+    std::uint8_t nb_bins;
+public:
+    FrequencyMap(std::uint8_t nb_bins)
+        : nb_bins(nb_bins)
+        , frequencyMap(nb_bins/*((nb_bins - 1) / 8 + 1) * 8*/, 0)
+    {}
 
-static inline unsigned int compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs, unsigned int nb_colors) {
-    unsigned int count = 0;
-    for (unsigned int color = 0; color < nb_colors; ++color) {
+    auto begin() { return frequencyMap.begin(); }
+    auto begin() const { return frequencyMap.begin(); }
+    auto end() { return frequencyMap.begin() + nb_bins; }
+    auto end() const { return frequencyMap.begin() + nb_bins; }
+
+    auto& operator[](std::uint8_t index) { return frequencyMap[index]; }
+    const auto& operator[](std::uint8_t index) const { return frequencyMap[index]; }
+};
+
+static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs, std::uint8_t nb_colors) {
+    std::uint8_t count = 0;
+    for (std::uint8_t color = 0; color < nb_colors; ++color) {
         count += std::min(lhs[color], rhs[color]);
     }
 
@@ -29,8 +44,8 @@ using History = std::tuple<Code, FrequencyMap>;
 
 
 
-static inline unsigned int count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-    unsigned int black = 0;
+static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
+    std::uint8_t black = 0;
     for (size_t i = 0; i <= position; ++i) {
         if (code[i] == old_guess[i]) {
             ++black;
@@ -40,23 +55,23 @@ static inline unsigned int count_black_pegs(const Code& code, const Code& old_gu
 }
 
 
-static inline unsigned int count_white_pegs(const FrequencyMap& code_frequency_map,
+static inline std::uint8_t count_white_pegs(const FrequencyMap& code_frequency_map,
     const FrequencyMap& old_guess_frequency_map,
-    unsigned int nb_colors,
-    unsigned int black) {
-    const unsigned int white = compare_and_count(code_frequency_map, old_guess_frequency_map, nb_colors);
+    std::uint8_t nb_colors,
+    std::uint8_t black) {
+    const std::uint8_t white = compare_and_count(code_frequency_map, old_guess_frequency_map, nb_colors);
     return white - black;
 }
 
 
 // FeedbackCalculator: encapsulates feedback logic and reuses count vectors
 class FeedbackCalculator {
-    unsigned int pegs;
-    unsigned int colors;
+    std::uint8_t pegs;
+    std::uint8_t colors;
     FrequencyMap secret_frequency_map;
 public:
-    FeedbackCalculator(unsigned int pegs, unsigned int colors);
-    FeedbackCalculator(unsigned int pegs, unsigned int colors, Code secret);
+    FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors);
+    FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, Code secret);
 
     void set_secret(const Code& secret);
 
@@ -68,8 +83,8 @@ public:
 class Solver {
     struct NewValue {};
 
-    const unsigned int pegs;
-    unsigned int colors;
+    const std::uint8_t pegs;
+    std::uint8_t colors;
     std::multimap<Feedback, History, std::greater<>> history;
     FrequencyMap code_frequency_map;
     Code code;
@@ -84,7 +99,7 @@ class Solver {
     FeedbackCalculator feedback_calculator;
 
 public:
-    Solver(unsigned int pegs, unsigned int colors);
+    Solver(std::uint8_t pegs, std::uint8_t colors);
 
     FeedbackCalculator& get_feedback_calculator();
 
@@ -96,28 +111,28 @@ public:
 
 private:
     template<typename Pred>
-        requires std::predicate<Pred, unsigned int, unsigned int>
+        requires std::predicate<Pred, std::uint8_t, std::uint8_t>
     inline bool compare_feedback(const Code& old_guess,
         const Feedback& old_guess_feedback,
         const FrequencyMap& old_guess_frequency_map,
         Pred pred) {
         // Black pegs
-        const unsigned int black = count_black_pegs(code, old_guess, position);
+        const std::uint8_t black = count_black_pegs(code, old_guess, position);
         if (!pred(black, old_guess_feedback.black())) {
             return false;
         }
 
         // White pegs
-        const unsigned int white = count_white_pegs(code_frequency_map, old_guess_frequency_map, colors, black);
+        const std::uint8_t white = count_white_pegs(code_frequency_map, old_guess_frequency_map, colors, black);
         return pred(white, old_guess_feedback.white());
     }
 
     inline bool is_same_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
-        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::equal_to<unsigned int>{});
+        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::equal_to<std::uint8_t>{});
     }
 
     inline bool is_similar_feedback(const Code& old_guess, const Feedback& old_guess_feedback, const FrequencyMap& old_guess_frequency_map) {
-        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<unsigned int>{});
+        return compare_feedback(old_guess, old_guess_feedback, old_guess_frequency_map, std::less_equal<std::uint8_t>{});
     }
 
 
