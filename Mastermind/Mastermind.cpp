@@ -9,6 +9,7 @@
 
 #include "Code.h"
 #include "Feedback.h"
+#include "DuplicateSolver.h"
 #include "NoDuplicateSolver.h"
 
 
@@ -61,9 +62,9 @@ public:
 };
 
 std::ostream& operator<<(std::ostream& stream, const TimeStatistics& statistics) {
-    for (auto time : statistics.get_mean_times()) {
-        stream << std::setprecision(std::numeric_limits<double>::digits10) << time.count() << '\n';
-    }
+    //for (auto time : statistics.get_mean_times()) {
+    //    stream << std::setprecision(std::numeric_limits<double>::digits10) << time.count() << '\n';
+    //}
 
     stream << std::setprecision(std::numeric_limits<double>::digits10)
         << "Time: "
@@ -126,20 +127,20 @@ NbGuessStatistics compute_nb_guesses_statistics(const std::vector<unsigned int>&
 template<class Solver>
 inline std::tuple<Code, unsigned int> solve(unsigned int pegs, const Code& secret, unsigned int colors)
 {
-    typename Solver::FeedbackCalculator feedback_calculator(pegs, secret);
-
     unsigned int nb_guesses = 0;
     Code final_guess;
-    Solver code_breaker(pegs, colors);
-    while (code_breaker.can_continue()) {
+    Solver solver(pegs, colors);
+    auto feedback_calculator = solver.get_feedback_calculator();
+    feedback_calculator.set_secret(secret);
+    while (solver.can_continue()) {
         ++nb_guesses;
-        const auto& [guess, guess_frequency_map] = code_breaker.next_guess();
+        const auto& [guess, guess_frequency_map] = solver.next_guess();
         Feedback feedback = feedback_calculator.get_feedback(guess, secret, guess_frequency_map);
         if (feedback.black() == pegs) {
             final_guess = guess;
             break;
         }
-        code_breaker.apply_feedback(feedback);
+        solver.apply_feedback(feedback);
     }
 
     return { final_guess, nb_guesses };
@@ -164,7 +165,8 @@ int main() {
         for (auto j : std::views::iota(0u, count)) {
             const Code secret = generate_secret_no_duplicate(pegs, colors, 42 + j);    // Pseudo-random secret
 
-            using Solver = no_duplicate::Solver;
+            //using Solver = no_duplicate::Solver;
+            using Solver = duplicate::Solver;
 
             Timer timer;
             auto [final_guess, nb_guesses] = solve<Solver>(pegs, secret, colors);

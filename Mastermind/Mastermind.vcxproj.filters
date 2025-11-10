@@ -18,6 +18,9 @@
     <ClCompile Include="Mastermind.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DuplicateSolver.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="NoDuplicateSolver.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -26,6 +29,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DuplicateSolver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="NoDuplicateSolver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
