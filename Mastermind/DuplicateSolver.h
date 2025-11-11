@@ -1,10 +1,13 @@
 #pragma once
 
+#include <cassert>
 #include <generator>
 #include <map>
 #include <new>
 #include <tuple>
 #include <vector>
+
+#include <immintrin.h>
 
 
 #include "Code.h"
@@ -19,25 +22,35 @@ class FrequencyMap {
 public:
     FrequencyMap(std::uint8_t nb_bins)
         : nb_bins(nb_bins)
-        , frequencyMap(nb_bins/*((nb_bins - 1) / 8 + 1) * 8*/, 0)
+        , frequencyMap(((nb_bins - 1) / 16 + 1) * 16, 0)
     {}
 
-    auto begin() { return frequencyMap.begin(); }
-    auto begin() const { return frequencyMap.begin(); }
-    auto end() { return frequencyMap.begin() + nb_bins; }
-    auto end() const { return frequencyMap.begin() + nb_bins; }
+    inline auto begin() { return frequencyMap.begin(); }
+    inline auto begin() const { return frequencyMap.begin(); }
+    inline auto end() { return frequencyMap.begin() + nb_bins; }
+    inline auto end() const { return frequencyMap.begin() + nb_bins; }
 
-    auto& operator[](std::uint8_t index) { return frequencyMap[index]; }
-    const auto& operator[](std::uint8_t index) const { return frequencyMap[index]; }
+    inline auto& operator[](std::uint8_t index) { return frequencyMap[index]; }
+    inline const auto& operator[](std::uint8_t index) const { return frequencyMap[index]; }
+
+    static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs, std::uint8_t nb_colors) {
+        std::uint8_t count = 0;
+        for (std::uint8_t i = 0; i < nb_colors; i+=16) {
+            __m128i data_lhs = *reinterpret_cast<const __m128i*>(&lhs.frequencyMap[i]);
+            __m128i data_rhs = *reinterpret_cast<const __m128i*>(&rhs.frequencyMap[i]);
+
+            __m128i min_vals = _mm_min_epu8(data_lhs, data_rhs);
+            __m128i sad = _mm_sad_epu8(min_vals, _mm_setzero_si128());
+            __m128i sum = _mm_add_epi64(sad, _mm_srli_si128(sad, 8));
+            count += static_cast<uint8_t>(_mm_cvtsi128_si64(sum));
+        }
+
+        return count;
+    }
 };
 
 static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs, std::uint8_t nb_colors) {
-    std::uint8_t count = 0;
-    for (std::uint8_t color = 0; color < nb_colors; ++color) {
-        count += std::min(lhs[color], rhs[color]);
-    }
-
-    return count;
+    return FrequencyMap::compare_and_count(lhs, rhs, nb_colors);
 }
 
 using History = std::tuple<Code, FrequencyMap>;
