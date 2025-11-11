@@ -36,8 +36,8 @@ public:
     static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs, std::uint8_t nb_colors) {
         std::uint8_t count = 0;
         for (std::uint8_t i = 0; i < nb_colors; i += 16) {
-            __m128i data_lhs = *reinterpret_cast<const __m128i*>(&lhs.frequencyMap[i]);
-            __m128i data_rhs = *reinterpret_cast<const __m128i*>(&rhs.frequencyMap[i]);
+            __m128i data_lhs = _mm_load_si128(reinterpret_cast<const __m128i*>(&lhs.frequencyMap[i]));
+            __m128i data_rhs = _mm_load_si128(reinterpret_cast<const __m128i*>(&rhs.frequencyMap[i]));
 
             __m128i min_vals = _mm_min_epu8(data_lhs, data_rhs);
             __m128i sad = _mm_sad_epu8(min_vals, _mm_setzero_si128());
@@ -53,17 +53,59 @@ static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const Freq
     return FrequencyMap::compare_and_count(lhs, rhs, nb_colors);
 }
 
-using History = std::tuple<Code, FrequencyMap>;
+class History {
+    alignas(std::hardware_destructive_interference_size) Code code;
+    alignas(std::hardware_destructive_interference_size) FrequencyMap frequencyMap;
 
-// alignas(std::hardware_destructive_interference_size)
+public:
+    History(const Code& code, const FrequencyMap& frequencyMap)
+        : code(code)
+        , frequencyMap(frequencyMap)
+    {}
+    inline const Code& get_code() const { return code; }
+    inline Code& get_code() { return code; }
 
+    inline const FrequencyMap& get_frequency_map() const { return frequencyMap; }
+    inline FrequencyMap& get_frequency_map() { return frequencyMap; }
+};
+
+template <size_t I>
+inline const auto& get(const History& h) {
+    if constexpr (I == 0) {
+        return h.get_code();
+    }
+    else {
+        return h.get_frequency_map();
+    }
+}
+
+template <size_t I>
+inline auto& get(History& h) {
+    if constexpr (I == 0) {
+        return h.get_code();
+    }
+    else {
+        return h.get_frequency_map();
+    }
+}
+
+
+} // namespace duplicate
+
+namespace std {
+template <> struct tuple_size<duplicate::History> : integral_constant<size_t, 2> {};
+template <> struct tuple_element<0, duplicate::History> { using type = ::Code; };
+template <> struct tuple_element<1, duplicate::History> { using type = duplicate::FrequencyMap; };
+}
+
+namespace duplicate {
 
 static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
     std::uint8_t count = 0;
     std::uint8_t i = 0;
     for (; i + 16 <= position; i += 16) {
-        __m128i c = *reinterpret_cast<const __m128i*>(&code[i]);
-        __m128i g = *reinterpret_cast<const __m128i*>(&old_guess[i]);
+        __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
+        __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
         __m128i cmp = _mm_cmpeq_epi8(c, g);
         std::uint32_t mask = _mm_movemask_epi8(cmp);
         count += static_cast<std::uint8_t>(std::popcount(mask));
@@ -71,8 +113,8 @@ static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_gu
 
     if (i < position) {
         // _mm_load_si128()
-        __m128i c = *reinterpret_cast<const __m128i*>(&code[i]);
-        __m128i g = *reinterpret_cast<const __m128i*>(&old_guess[i]);
+        __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
+        __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
         __m128i cmp = _mm_cmpeq_epi8(c, g);
         std::uint32_t mask = _mm_movemask_epi8(cmp);
         std::uint32_t relevant_mask = mask & ((1U << (position + 1)) - 1);
