@@ -24,7 +24,7 @@ Feedback FeedbackCalculator::get_feedback(const Code& guess, const Code& secret,
     return { black, white };
 }
 
-FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, Code secret) : FeedbackCalculator(pegs) {
+FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, const Code& secret) : FeedbackCalculator(pegs) {
     set_secret(secret);
 }
 

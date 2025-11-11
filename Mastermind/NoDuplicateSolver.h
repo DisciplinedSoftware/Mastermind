@@ -51,7 +51,7 @@ class FeedbackCalculator {
 public:
     FeedbackCalculator(std::uint8_t pegs);
 
-    FeedbackCalculator(std::uint8_t pegs, Code secret);
+    FeedbackCalculator(std::uint8_t pegs, const Code& secret);
 
     void set_secret(const Code& secret);
 
@@ -79,8 +79,6 @@ class Solver {
     FeedbackCalculator feedback_calculator;
 
 public:
-    using FeedbackCalculator = no_duplicate::FeedbackCalculator;
-
     Solver(std::uint8_t pegs, std::uint8_t colors);
 
     FeedbackCalculator& get_feedback_calculator();
