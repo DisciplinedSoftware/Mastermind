@@ -5,13 +5,25 @@
 
 namespace duplicate {
 
+std::uint8_t ceil_to_multiple_of(std::uint8_t nb_bins, std::uint8_t multiple)
+{
+    return ((nb_bins - 1) / 16 + 1) * 16;
+}
+
+
+FrequencyMap::FrequencyMap(std::uint8_t nb_bins)
+    : nb_bins(nb_bins)
+    , frequencyMap(ceil_to_multiple_of(nb_bins, 16), 0)
+{}
+
+
 FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors)
     : pegs(pegs)
     , colors(colors)
     , secret_frequency_map(colors)
 {}
 
-FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, Code secret)
+FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, const Code& secret)
     : FeedbackCalculator(pegs, colors) {
     set_secret(secret);
 }
@@ -36,9 +48,9 @@ Feedback FeedbackCalculator::get_feedback(const Code& guess, const Code& secret,
 Solver::Solver(std::uint8_t pegs, std::uint8_t colors)
     : pegs(pegs)
     , colors(colors)
-    , code(pegs, 0)
+    , code(ceil_to_multiple_of(pegs, 16), 0)
     , code_frequency_map(colors)
-    , converted_code(pegs, 0)
+    , converted_code(ceil_to_multiple_of(pegs, 16), 0)
     , converted_code_frequency_map(colors)
     , position(0)
     , last_position(pegs - 1)
@@ -163,10 +175,10 @@ void Solver::create_color_map() {
     }
 }
 
-void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const std::vector<Color>& reverse_color_map, std::uint8_t nb_colors) {
+void convert_inplace_code_and_frequency_map(Code& code, FrequencyMap& code_frequency_map, const std::vector<Color>& reverse_color_map, std::uint8_t pegs) {
     std::ranges::fill(code_frequency_map, 0);
 
-    for (Color& color : code) {
+    for (Color& color : code | std::views::take(pegs)) {
         color = reverse_color_map[color];
         ++code_frequency_map[color];
     }
@@ -178,10 +190,10 @@ void Solver::convert_code_and_history() {
         reverse_color_map[c] = static_cast<Color>(i);
     }
 
-    convert_inplace_code_and_frequency_map(code, code_frequency_map, reverse_color_map, colors);
+    convert_inplace_code_and_frequency_map(code, code_frequency_map, reverse_color_map, pegs);
     for (auto& [old_guess_feedback, data] : history) {
         auto& [old_guess, old_guess_frequency_map] = data;
-        convert_inplace_code_and_frequency_map(old_guess, old_guess_frequency_map, reverse_color_map, colors);
+        convert_inplace_code_and_frequency_map(old_guess, old_guess_frequency_map, reverse_color_map, pegs);
     }
 }
 

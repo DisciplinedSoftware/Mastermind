@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cassert>
+#include <array>
 #include <generator>
 #include <map>
 #include <new>
@@ -20,10 +20,7 @@ class FrequencyMap {
     alignas(std::hardware_destructive_interference_size) std::vector<std::uint8_t> frequencyMap;
     std::uint8_t nb_bins;
 public:
-    FrequencyMap(std::uint8_t nb_bins)
-        : nb_bins(nb_bins)
-        , frequencyMap(((nb_bins - 1) / 16 + 1) * 16, 0)
-    {}
+    FrequencyMap(std::uint8_t nb_bins);
 
     inline auto begin() { return frequencyMap.begin(); }
     inline auto begin() const { return frequencyMap.begin(); }
@@ -100,6 +97,25 @@ template <> struct tuple_element<1, duplicate::History> { using type = duplicate
 
 namespace duplicate {
 
+static const std::array<std::uint32_t, 16> masks{
+    (1U << 1) - 1,
+    (1U << 2) - 1,
+    (1U << 3) - 1,
+    (1U << 4) - 1,
+    (1U << 5) - 1,
+    (1U << 6) - 1,
+    (1U << 7) - 1,
+    (1U << 8) - 1,
+    (1U << 9) - 1,
+    (1U << 10) - 1,
+    (1U << 11) - 1,
+    (1U << 12) - 1,
+    (1U << 13) - 1,
+    (1U << 14) - 1,
+    (1U << 15) - 1,
+    (1U << 16) - 1,
+};
+
 static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
     std::uint8_t count = 0;
     std::uint8_t i = 0;
@@ -117,7 +133,7 @@ static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_gu
         __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
         __m128i cmp = _mm_cmpeq_epi8(c, g);
         std::uint32_t mask = _mm_movemask_epi8(cmp);
-        std::uint32_t relevant_mask = mask & ((1U << (position + 1)) - 1);
+        std::uint32_t relevant_mask = mask & masks[position - i];
         count += static_cast<std::uint8_t>(std::popcount(relevant_mask));
     }
 
@@ -141,7 +157,7 @@ class FeedbackCalculator {
     FrequencyMap secret_frequency_map;
 public:
     FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors);
-    FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, Code secret);
+    FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, const Code& secret);
 
     void set_secret(const Code& secret);
 
@@ -159,7 +175,7 @@ class Solver {
     FrequencyMap code_frequency_map;
     alignas(std::hardware_destructive_interference_size) Code code;
     FrequencyMap converted_code_frequency_map;
-    Code converted_code;
+    alignas(std::hardware_destructive_interference_size) Code converted_code;
     size_t position;
     const size_t last_position;
     bool all_colors_known_mode;
