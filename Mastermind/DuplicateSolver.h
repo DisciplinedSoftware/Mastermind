@@ -35,7 +35,7 @@ public:
 
     static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs, std::uint8_t nb_colors) {
         std::uint8_t count = 0;
-        for (std::uint8_t i = 0; i < nb_colors; i+=16) {
+        for (std::uint8_t i = 0; i < nb_colors; i += 16) {
             __m128i data_lhs = *reinterpret_cast<const __m128i*>(&lhs.frequencyMap[i]);
             __m128i data_rhs = *reinterpret_cast<const __m128i*>(&rhs.frequencyMap[i]);
 
@@ -55,16 +55,31 @@ static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const Freq
 
 using History = std::tuple<Code, FrequencyMap>;
 
+// alignas(std::hardware_destructive_interference_size)
 
 
 static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-    std::uint8_t black = 0;
-    for (size_t i = 0; i <= position; ++i) {
-        if (code[i] == old_guess[i]) {
-            ++black;
-        }
+    std::uint8_t count = 0;
+    std::uint8_t i = 0;
+    for (; i + 16 <= position; i += 16) {
+        __m128i c = *reinterpret_cast<const __m128i*>(&code[i]);
+        __m128i g = *reinterpret_cast<const __m128i*>(&old_guess[i]);
+        __m128i cmp = _mm_cmpeq_epi8(c, g);
+        std::uint32_t mask = _mm_movemask_epi8(cmp);
+        count += static_cast<std::uint8_t>(std::popcount(mask));
     }
-    return black;
+
+    if (i < position) {
+        // _mm_load_si128()
+        __m128i c = *reinterpret_cast<const __m128i*>(&code[i]);
+        __m128i g = *reinterpret_cast<const __m128i*>(&old_guess[i]);
+        __m128i cmp = _mm_cmpeq_epi8(c, g);
+        std::uint32_t mask = _mm_movemask_epi8(cmp);
+        std::uint32_t relevant_mask = mask & ((1U << (position + 1)) - 1);
+        count += static_cast<std::uint8_t>(std::popcount(relevant_mask));
+    }
+
+    return count;
 }
 
 
@@ -100,7 +115,7 @@ class Solver {
     std::uint8_t colors;
     std::multimap<Feedback, History, std::greater<>> history;
     FrequencyMap code_frequency_map;
-    Code code;
+    alignas(std::hardware_destructive_interference_size) Code code;
     FrequencyMap converted_code_frequency_map;
     Code converted_code;
     size_t position;
