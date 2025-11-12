@@ -48,6 +48,7 @@ static inline std::uint8_t count_white_pegs(const FrequencyMap& code_frequency_m
 class FeedbackCalculator {
     std::uint8_t pegs;
     FrequencyMap secret_frequency_map;
+    Code secret;
 public:
     FeedbackCalculator(std::uint8_t pegs);
 
@@ -55,7 +56,7 @@ public:
 
     void set_secret(const Code& secret);
 
-    Feedback get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map);
+    Feedback get_feedback(const Code& guess, const FrequencyMap& guess_frequency_map);
 };
 
 

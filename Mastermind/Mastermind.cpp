@@ -135,7 +135,7 @@ template<class Solver> inline std::tuple<Code, unsigned int> solve(std::uint8_t 
     while (solver.can_continue()) {
         ++nb_guesses;
         const auto& [guess, guess_frequency_map] = solver.next_guess();
-        Feedback feedback = feedback_calculator.get_feedback(guess, secret, guess_frequency_map);
+        Feedback feedback = feedback_calculator.get_feedback(guess, guess_frequency_map);
         if (feedback.black() == pegs) {
             final_guess = guess;
             break;

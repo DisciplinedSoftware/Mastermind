@@ -21,6 +21,7 @@ FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors)
     : pegs(pegs)
     , colors(colors)
     , secret_frequency_map(colors)
+    , secret(ceil_to_multiple_of(colors, 16), 0)
 {}
 
 FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, const Code& secret)
@@ -30,6 +31,8 @@ FeedbackCalculator::FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, c
 
 
 void FeedbackCalculator::set_secret(const Code& secret) {
+    std::ranges::copy(secret, this->secret.begin());
+
     // Reset secret frequency map and compute it
     std::ranges::fill(secret_frequency_map, 0);
 
@@ -38,7 +41,7 @@ void FeedbackCalculator::set_secret(const Code& secret) {
     }
 }
 
-Feedback FeedbackCalculator::get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map) {
+Feedback FeedbackCalculator::get_feedback(const Code& guess, const FrequencyMap& guess_frequency_map) {
     const std::uint8_t black = count_black_pegs(guess, secret, pegs - 1);
     const std::uint8_t white = count_white_pegs(guess_frequency_map, secret_frequency_map, colors, black);
     return { black, white };

@@ -141,6 +141,8 @@ static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_gu
 }
 
 
+
+
 static inline std::uint8_t count_white_pegs(const FrequencyMap& code_frequency_map,
     const FrequencyMap& old_guess_frequency_map,
     std::uint8_t nb_colors,
@@ -152,16 +154,17 @@ static inline std::uint8_t count_white_pegs(const FrequencyMap& code_frequency_m
 
 // FeedbackCalculator: encapsulates feedback logic and reuses count vectors
 class FeedbackCalculator {
-    std::uint8_t pegs;
-    std::uint8_t colors;
+    const std::uint8_t pegs;
+    const std::uint8_t colors;
     FrequencyMap secret_frequency_map;
+    Code secret;
 public:
     FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors);
     FeedbackCalculator(std::uint8_t pegs, std::uint8_t colors, const Code& secret);
 
     void set_secret(const Code& secret);
 
-    Feedback get_feedback(const Code& guess, const Code& secret, const FrequencyMap& guess_frequency_map);
+    Feedback get_feedback(const Code& guess, const FrequencyMap& guess_frequency_map);
 };
 
 
