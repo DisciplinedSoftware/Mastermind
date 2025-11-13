@@ -31,18 +31,18 @@ public:
     inline const auto& operator[](std::uint8_t index) const { return frequencyMap[index]; }
 
     static inline std::uint8_t compare_and_count(const FrequencyMap& lhs, const FrequencyMap& rhs, std::uint8_t nb_colors) {
-        std::uint8_t count = 0;
+        std::uint64_t count = 0;
         for (std::uint8_t i = 0; i < nb_colors; i += 16) {
-            __m128i data_lhs = _mm_load_si128(reinterpret_cast<const __m128i*>(&lhs.frequencyMap[i]));
-            __m128i data_rhs = _mm_load_si128(reinterpret_cast<const __m128i*>(&rhs.frequencyMap[i]));
+            const __m128i data_lhs = _mm_load_si128(reinterpret_cast<const __m128i*>(&lhs.frequencyMap[i]));
+            const __m128i data_rhs = _mm_load_si128(reinterpret_cast<const __m128i*>(&rhs.frequencyMap[i]));
 
-            __m128i min_vals = _mm_min_epu8(data_lhs, data_rhs);
-            __m128i sad = _mm_sad_epu8(min_vals, _mm_setzero_si128());
-            __m128i sum = _mm_add_epi64(sad, _mm_srli_si128(sad, 8));
-            count += static_cast<uint8_t>(_mm_cvtsi128_si64(sum));
+            const __m128i min_vals = _mm_min_epu8(data_lhs, data_rhs);
+            const __m128i sad = _mm_sad_epu8(min_vals, _mm_setzero_si128());
+            const __m128i sum = _mm_add_epi64(sad, _mm_srli_si128(sad, 8));
+            count += _mm_cvtsi128_si64(sum);
         }
 
-        return count;
+        return static_cast<uint8_t>(count);
     }
 };
 
@@ -97,7 +97,7 @@ template <> struct tuple_element<1, duplicate::History> { using type = duplicate
 
 namespace duplicate {
 
-static const std::array<std::uint32_t, 16> masks{
+static const std::array<__mmask16, 16> masks{
     (1U << 1) - 1,
     (1U << 2) - 1,
     (1U << 3) - 1,
@@ -117,27 +117,26 @@ static const std::array<std::uint32_t, 16> masks{
 };
 
 static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
-    std::uint8_t count = 0;
+    int count = 0;
     std::uint8_t i = 0;
     for (; i + 16 <= position; i += 16) {
-        __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
-        __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
-        __m128i cmp = _mm_cmpeq_epi8(c, g);
-        std::uint32_t mask = _mm_movemask_epi8(cmp);
-        count += static_cast<std::uint8_t>(std::popcount(mask));
+        const __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
+        const __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
+        const __m128i cmp = _mm_cmpeq_epi8(c, g);
+        const __mmask16 mask = _mm_movemask_epi8(cmp);
+        count += std::popcount(mask);
     }
 
     if (i < position) {
-        // _mm_load_si128()
-        __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
-        __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
-        __m128i cmp = _mm_cmpeq_epi8(c, g);
-        std::uint32_t mask = _mm_movemask_epi8(cmp);
-        std::uint32_t relevant_mask = mask & masks[position - i];
-        count += static_cast<std::uint8_t>(std::popcount(relevant_mask));
+        const __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
+        const __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
+        const __m128i cmp = _mm_cmpeq_epi8(c, g);
+        const __mmask16 mask = _mm_movemask_epi8(cmp);
+        const __mmask16 relevant_mask = mask & masks[position - i];
+        count += std::popcount(relevant_mask);
     }
 
-    return count;
+    return static_cast<std::uint8_t>(count);
 }
 
 
