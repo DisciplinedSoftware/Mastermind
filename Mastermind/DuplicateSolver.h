@@ -116,24 +116,28 @@ static const std::array<__mmask16, 16> masks{
     (1U << 16) - 1,
 };
 
+
+static inline __mmask16 compare(const Code& code, std::uint8_t i, const Code& old_guess)
+{
+    const __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
+    const __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
+    const __m128i cmp = _mm_cmpeq_epi8(c, g);
+    return _mm_movemask_epi8(cmp);
+}
+
 static inline std::uint8_t count_black_pegs(const Code& code, const Code& old_guess, size_t position) {
     int count = 0;
     std::uint8_t i = 0;
     for (; i + 16 <= position; i += 16) {
-        const __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
-        const __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
-        const __m128i cmp = _mm_cmpeq_epi8(c, g);
-        const __mmask16 mask = _mm_movemask_epi8(cmp);
-        count += std::popcount(mask);
+        const __mmask16 res = compare(code, i, old_guess);
+        count += std::popcount(res);
     }
 
     if (i < position) {
-        const __m128i c = _mm_load_si128(reinterpret_cast<const __m128i*>(&code[i]));
-        const __m128i g = _mm_load_si128(reinterpret_cast<const __m128i*>(&old_guess[i]));
-        const __m128i cmp = _mm_cmpeq_epi8(c, g);
-        const __mmask16 mask = _mm_movemask_epi8(cmp);
-        const __mmask16 relevant_mask = mask & masks[position - i];
-        count += std::popcount(relevant_mask);
+        const __mmask16 res = compare(code, i, old_guess);
+        const __mmask16 mask = masks[position - i];
+        const __mmask16 relevant_res = res & mask;  // Keep only the relevant values
+        count += std::popcount(relevant_res);
     }
 
     return static_cast<std::uint8_t>(count);
